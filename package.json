@@ -1,0 +1,33 @@
+{
+  "name": "local-ai-chat-platform",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.16.0",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @ai-chat/shared build && concurrently --kill-others-on-fail --names api,web --prefix-colors cyan,magenta \"pnpm --filter @ai-chat/api dev\" \"pnpm --filter @ai-chat/web dev\"",
+    "build": "pnpm --filter @ai-chat/shared build && pnpm --filter @ai-chat/web build && pnpm --filter @ai-chat/api build",
+    "start": "pnpm --filter @ai-chat/api start",
+    "lint": "eslint .",
+    "typecheck": "pnpm --filter @ai-chat/shared build && pnpm -r typecheck && tsc -p tsconfig.e2e.json --noEmit",
+    "test": "pnpm --filter @ai-chat/shared build && pnpm -r test",
+    "test:e2e": "pnpm --filter @ai-chat/shared build && playwright test",
+    "dev:e2e": "concurrently --kill-others-on-fail --names api,web --prefix-colors cyan,magenta \"pnpm --filter @ai-chat/api exec tsx ../../e2e/fixture_server.ts\" \"pnpm --filter @ai-chat/web exec vite --host 127.0.0.1 --port 4173\"",
+    "db:generate": "pnpm --filter @ai-chat/api db:generate",
+    "db:migrate": "pnpm --filter @ai-chat/api db:migrate"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.32.0",
+    "@playwright/test": "^1.55.0",
+    "@types/node": "^24.2.1",
+    "concurrently": "^9.2.0",
+    "eslint": "^9.32.0",
+    "eslint-plugin-vue": "^10.4.0",
+    "globals": "^16.3.0",
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.39.0"
+  }
+}
