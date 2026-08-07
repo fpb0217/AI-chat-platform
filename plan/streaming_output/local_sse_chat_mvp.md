@@ -40,7 +40,7 @@ updated_at: 2026-08-07
 
 - 响应式单页聊天、Enter 发送、Shift+Enter 换行、发送/停止切换。
 - delta 进入 grapheme 队列，以约 48 graphemes/s 输出，积压时最高约 240/s，结束后 300ms 内排空。
-- 支持经清洗的 GFM、代码高亮与复制；自动滚动尊重用户主动上滚。
+- 支持经清洗的 GFM、代码高亮与复制；自动滚动根据内容实际布局变化持续跟随，并尊重用户主动上滚。
 - 刷新恢复历史；停止或失败状态随消息持久化。
 
 ## 验收标准
@@ -60,11 +60,12 @@ updated_at: 2026-08-07
 
 - ESLint、前后端及 E2E TypeScript 类型检查通过。
 - Vitest：后端 13 项、前端 10 项，共 23 项单元与集成测试通过。
-- Playwright：渐进输出与刷新恢复、停止并保留部分回答、规范化错误态、移动端无横向溢出，共 4 项通过。
+- Playwright：渐进输出与刷新恢复、停止并保留部分回答、规范化错误态、流式代码块自动滚动、移动端无横向溢出，共 5 项通过。
 - Drizzle 迁移可在本地 SQLite 执行；消息历史查询确认使用 `idx_messages_conversation_position` 索引。
 - 前后端生产构建通过；生产服务健康接口和 Vue 静态页面冒烟测试通过。
 - 用户已使用本地 DeepSeek 配置完成实际测试，确认核心对话与流式输出功能基本正常；API Key 未写入仓库或客户端配置。
 - 用户已确认验收，并已创建 `doc/streaming_output/local_sse_chat_mvp.md`。
+- 流式 Markdown 代码块导致自动滚动中断的问题已完成修复、自动化验证和用户验收，详见 [`doc/fixes/streaming_markdown_code_block_auto_scroll.md`](../../doc/fixes/streaming_markdown_code_block_auto_scroll.md)。
 
 ## 修订记录
 
@@ -72,3 +73,4 @@ updated_at: 2026-08-07
 - 2026-08-07：新增 plan/doc 分类、单一主文件与验收后生成独立文档的生命周期规则。
 - 2026-08-07：完成 MVP 实现及无真实 Key 的自动化验证，状态更新为 `implemented_pending_acceptance`。
 - 2026-08-07：用户完成本地实测并确认核心功能，状态更新为 `accepted`，生成最终实现文档。
+- 2026-08-07：修复流式 Markdown 代码块渲染期间自动滚动中断的问题，新增布局变化跟随机制和 Playwright 回归测试，并通过用户验收。

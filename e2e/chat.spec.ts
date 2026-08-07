@@ -52,6 +52,29 @@ test.describe.serial("local streaming chat", () => {
     await expect(page.getByRole("button", { name: /重试/u })).toHaveCount(0);
   });
 
+  test("keeps the viewport pinned while a streamed code block grows", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 900, height: 500 });
+    await page.goto("/");
+    await page.getByLabel("输入消息").fill("请测试代码块滚动");
+    await page.getByRole("button", { name: "发送消息" }).click();
+
+    const assistant = page.locator(".message-row-assistant").last();
+    await expect(assistant.locator(".code-block")).toBeVisible();
+    await expect(assistant).toContainText("代码块生成完毕。");
+
+    await expect
+      .poll(() =>
+        page.locator(".conversation-scroll").evaluate((element) =>
+          Math.round(
+            element.scrollHeight - element.scrollTop - element.clientHeight,
+          ),
+        ),
+      )
+      .toBeLessThanOrEqual(1);
+  });
+
   test("keeps the composer inside a mobile viewport", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto("/");

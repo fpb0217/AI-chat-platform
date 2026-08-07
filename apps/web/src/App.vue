@@ -1,5 +1,12 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from "vue";
+import {
+  computed,
+  nextTick,
+  onBeforeUnmount,
+  onMounted,
+  ref,
+  watch,
+} from "vue";
 import {
   AlertCircle,
   ArrowDown,
@@ -26,7 +33,11 @@ const {
 
 const draft = ref("");
 const scrollArea = ref<HTMLElement | null>(null);
+const scrollContent = ref<HTMLElement | null>(null);
 const followOutput = ref(true);
+const bottomThreshold = 96;
+let previousScrollTop = 0;
+let contentResizeObserver: ResizeObserver | null = null;
 const statusText = computed(() => {
   if (streamState.value === "connecting") {
     return "正在连接";
@@ -46,7 +57,12 @@ function scrollToBottom(behavior: ScrollBehavior = "smooth"): void {
     return;
   }
   followOutput.value = true;
-  element.scrollTo({ top: element.scrollHeight, behavior });
+  if (behavior === "auto") {
+    element.scrollTop = element.scrollHeight;
+  } else {
+    element.scrollTo({ top: element.scrollHeight, behavior });
+  }
+  previousScrollTop = element.scrollTop;
 }
 
 function handleScroll(): void {
@@ -55,7 +71,20 @@ function handleScroll(): void {
     return;
   }
   const distance = element.scrollHeight - element.scrollTop - element.clientHeight;
-  followOutput.value = distance < 96;
+  const currentScrollTop = element.scrollTop;
+
+  if (distance < bottomThreshold) {
+    followOutput.value = true;
+  } else if (currentScrollTop < previousScrollTop - 1) {
+    followOutput.value = false;
+  }
+  previousScrollTop = currentScrollTop;
+}
+
+function handleContentResize(): void {
+  if (followOutput.value) {
+    scrollToBottom("auto");
+  }
 }
 
 function submit(): void {
@@ -82,9 +111,18 @@ watch(
 );
 
 onMounted(async () => {
+  const content = scrollContent.value;
+  if (content) {
+    contentResizeObserver = new ResizeObserver(handleContentResize);
+    contentResizeObserver.observe(content);
+  }
   await loadChat();
   await nextTick();
   scrollToBottom("auto");
+});
+
+onBeforeUnmount(() => {
+  contentResizeObserver?.disconnect();
 });
 </script>
 
@@ -114,7 +152,7 @@ onMounted(async () => {
     </header>
 
     <main ref="scrollArea" class="conversation-scroll" @scroll="handleScroll">
-      <div class="conversation-column">
+      <div ref="scrollContent" class="conversation-column">
         <div v-if="loading" class="loading-state" aria-label="正在加载对话">
           <span />
           <span />

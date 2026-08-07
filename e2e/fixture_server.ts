@@ -52,6 +52,20 @@ class E2eProvider implements ChatProvider {
       return;
     }
 
+    if (prompt.includes("代码块滚动")) {
+      yield { type: "delta", text: "下面是一个逐步生成的代码块：\n\n```ts\n" };
+      for (let index = 0; index < 80; index += 1) {
+        yield {
+          type: "delta",
+          text: `const value${index} = "streaming line ${index}";\n`,
+        };
+        await wait(12, signal);
+      }
+      yield { type: "delta", text: "```\n\n代码块生成完毕。" };
+      yield { type: "done", finishReason: "stop", usage: null };
+      return;
+    }
+
     yield { type: "delta", text: "这是一个" };
     await wait(700, signal);
     yield { type: "delta", text: "逐字出现的流式回答。" };
@@ -82,4 +96,3 @@ async function shutdown(): Promise<void> {
 
 process.once("SIGINT", () => void shutdown());
 process.once("SIGTERM", () => void shutdown());
-

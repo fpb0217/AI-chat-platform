@@ -11,7 +11,7 @@ source_plan: ../../plan/streaming_output/local_sse_chat_mvp.md
 
 ## 验收结论
 
-本功能已完成实现、自动化验证和用户本地实测，并于 2026-08-07 验收。用户确认核心对话与流式输出功能基本正常。
+本功能已完成实现、自动化验证和用户本地实测，并于 2026-08-07 验收。用户确认核心对话与流式输出功能基本正常，并确认后续的流式代码块自动滚动修复效果非常好。
 
 源计划：[本地 SSE 流式 AI 对话 MVP](../../plan/streaming_output/local_sse_chat_mvp.md)
 
@@ -99,7 +99,7 @@ SQLite 启用 WAL 和外键约束。消息状态包括 `streaming`、`completed`
 - Enter 发送，Shift+Enter 换行；输入框自动增高，最大输入长度为 20,000 字符。
 - 打字机以约 48 graphemes/s 起步，积压时最高提升至约 240/s；服务端结束后在约 300ms 内排空缓冲。
 - Markdown 支持 GFM、代码高亮和代码复制，并通过 DOMPurify 清洗 HTML。
-- 用户接近底部时自动跟随；主动上滚后停止抢滚动，并显示“回到底部”。
+- 用户接近底部时根据内容实际布局变化持续跟随，包括正在渲染的代码块；主动上滚后停止抢滚动，并显示“回到底部”。
 - 停止生成时排空已接收的显示缓冲、标记“已停止”，刷新后可从 SQLite 恢复部分回答。
 
 ## 验证结果
@@ -107,10 +107,14 @@ SQLite 启用 WAL 和外键约束。消息状态包括 `streaming`、`completed`
 - ESLint：通过。
 - TypeScript 类型检查：通过。
 - Vitest：后端 13 项、前端 10 项，共 23 项通过。
-- Playwright：4 项端到端测试通过。
+- Playwright：5 项端到端测试通过，包含流式代码块自动滚动回归测试。
 - Drizzle migration 和数据库索引验证：通过。
 - 生产构建、静态资源托管和健康检查冒烟测试：通过。
 - 用户使用本地 DeepSeek 配置完成实测，确认核心功能基本正常。
+
+## 相关修复
+
+- [流式 Markdown 代码块自动滚动中断](../fixes/streaming_markdown_code_block_auto_scroll.md)：修复 Markdown 节流渲染、代码块布局增长和滚动状态判断之间的竞态，并经用户验收。
 
 ## 安全说明
 
