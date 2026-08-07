@@ -7,7 +7,9 @@ dist/
 coverage/
 .vite/
 playwright-report/
+blob-report/
 test-results/
+playwright/.cache/
 *.tsbuildinfo
 .eslintcache
 

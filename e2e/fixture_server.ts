@@ -62,13 +62,14 @@ class E2eProvider implements ChatProvider {
     }
 
     if (prompt.includes("代码块滚动")) {
+      const lineDelay = prompt.includes("保留阅读位置") ? 50 : 12;
       yield { type: "delta", text: "下面是一个逐步生成的代码块：\n\n```ts\n" };
       for (let index = 0; index < 80; index += 1) {
         yield {
           type: "delta",
           text: `const value${index} = "streaming line ${index}";\n`,
         };
-        await wait(12, signal);
+        await wait(lineDelay, signal);
       }
       yield { type: "delta", text: "```\n\n代码块生成完毕。" };
       yield { type: "done", finishReason: "stop", usage: null };

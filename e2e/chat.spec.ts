@@ -101,6 +101,44 @@ test.describe.serial("local streaming chat", () => {
       .toBeLessThanOrEqual(1);
   });
 
+  test("stops following immediately when the user scrolls up during streaming", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 900, height: 500 });
+    await page.goto("/");
+    await page.getByLabel("输入消息").fill("请测试代码块滚动并保留阅读位置");
+    await page.getByRole("button", { name: "发送消息" }).click();
+
+    const scrollArea = page.locator(".conversation-scroll");
+    const assistant = page.locator(".message-row-assistant").last();
+    await expect(assistant.locator(".code-block")).toBeVisible();
+    await expect
+      .poll(() =>
+        scrollArea.evaluate(
+          (element) => element.scrollHeight - element.clientHeight,
+        ),
+      )
+      .toBeGreaterThan(200);
+    await expect(page.getByRole("button", { name: "停止生成" })).toBeVisible();
+    await expect(assistant).not.toContainText("代码块生成完毕。");
+
+    await scrollArea.evaluate((element) => {
+      element.scrollTop -= 48;
+    });
+
+    await expect(page.getByRole("button", { name: "回到底部" })).toBeVisible();
+    await expect(assistant).toContainText("代码块生成完毕。");
+    await expect(page.getByRole("button", { name: "停止生成" })).toHaveCount(0);
+    await expect
+      .poll(() =>
+        scrollArea.evaluate(
+          (element) =>
+            element.scrollHeight - element.scrollTop - element.clientHeight,
+        ),
+      )
+      .toBeGreaterThan(96);
+  });
+
   test("keeps the composer inside a mobile viewport", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto("/");

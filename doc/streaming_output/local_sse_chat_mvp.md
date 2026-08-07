@@ -102,22 +102,22 @@ SQLite 启用 WAL 和外键约束。消息状态包括 `streaming`、`completed`
 - Enter 发送，Shift+Enter 换行；输入框自动增高，最大输入长度为 20,000 字符。
 - 打字机以约 48 graphemes/s 起步，积压时最高提升至约 240/s；服务端结束后在约 300ms 内排空缓冲。
 - Markdown 支持 GFM、代码高亮和代码复制，并通过 DOMPurify 清洗 HTML。
-- 用户接近底部时根据内容实际布局变化持续跟随，包括正在渲染的代码块；主动上滚后停止抢滚动，并显示“回到底部”。
+- 用户接近底部时根据内容实际布局变化持续跟随，包括正在渲染的代码块；任何实际向上滚动都会优先停止抢滚动并显示“回到底部”，即使仍在距底部 96px 内也不会被新内容拉回，流式输出本身继续进行。
 - 停止生成时排空已接收的显示缓冲、标记“已停止”，刷新后可从 SQLite 恢复部分回答。
 
 ## 验证结果
 
 - ESLint：通过。
 - TypeScript 类型检查：通过。
-- Vitest：后端 13 项、前端 10 项，共 23 项通过。
-- Playwright：5 项端到端测试通过，包含流式代码块自动滚动回归测试。
+- Vitest：shared 8 项、API 19 项、Web 13 项，共 40 项通过。
+- Playwright：7 项端到端测试通过，包含流式代码块持续跟随和用户上滚暂停跟随两类回归测试。
 - Drizzle migration 和数据库索引验证：通过。
 - 生产构建、静态资源托管和健康检查冒烟测试：通过。
 - 用户使用本地 DeepSeek 配置完成实测，确认核心功能基本正常。
 
 ## 相关修复
 
-- [流式 Markdown 代码块自动滚动中断](../fixes/streaming_markdown_code_block_auto_scroll.md)：修复 Markdown 节流渲染、代码块布局增长和滚动状态判断之间的竞态，并经用户验收。
+- [流式 Markdown 代码块自动滚动中断](../fixes/streaming_markdown_code_block_auto_scroll.md)：修复 Markdown 节流渲染、代码块布局增长和滚动状态判断之间的竞态，并补充用户上滚立即暂停跟随且不打断输出的后续优化。
 
 ## 后续功能
 

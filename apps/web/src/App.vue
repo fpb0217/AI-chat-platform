@@ -79,10 +79,10 @@ function handleScroll(): void {
   const distance = element.scrollHeight - element.scrollTop - element.clientHeight;
   const currentScrollTop = element.scrollTop;
 
-  if (distance < bottomThreshold) {
-    followOutput.value = true;
-  } else if (currentScrollTop < previousScrollTop - 1) {
+  if (currentScrollTop < previousScrollTop) {
     followOutput.value = false;
+  } else if (distance < bottomThreshold) {
+    followOutput.value = true;
   }
   previousScrollTop = currentScrollTop;
 }
