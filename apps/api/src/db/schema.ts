@@ -29,10 +29,14 @@ export const messages = sqliteTable(
       enum: ["streaming", "completed", "stopped", "error"],
     }).notNull(),
     model: text("model"),
+    reasoningLevel: text("reasoning_level", {
+      enum: ["off", "low", "high", "max"],
+    }),
     finishReason: text("finish_reason"),
     promptTokens: integer("prompt_tokens"),
     completionTokens: integer("completion_tokens"),
     totalTokens: integer("total_tokens"),
+    reasoningTokens: integer("reasoning_tokens"),
     errorCode: text("error_code"),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
@@ -48,4 +52,3 @@ export const messages = sqliteTable(
 );
 
 export const touchUpdatedAt = sql`(unixepoch('subsec') * 1000)`;
-

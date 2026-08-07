@@ -21,12 +21,14 @@ function streamResponse(chunks: string[]): Response {
 }
 
 describe("DeepSeekProvider", () => {
-  it("sends the fixed non-thinking request and parses deltas plus usage", async () => {
+  it("separates reasoning from answer content and parses reasoning usage", async () => {
     const fetchImplementation = vi.fn<typeof fetch>(async (_input, _init) =>
       streamResponse([
-        ': keep-alive\n\ndata: {"choices":[{"delta":{"content":"你"},"finish_reason":null}]}\n',
+        ': keep-alive\n\ndata: {"choices":[{"delta":{"reasoning_content":"先分析"},"finish_reason":null}]}\n',
+        '\ndata: {"choices":[{"delta":{"reasoning_content":"再判断"},"finish_reason":null}]}\n\n',
+        'data: {"choices":[{"delta":{"content":"你"},"finish_reason":null}]}\n\n',
         '\ndata: {"choices":[{"delta":{"content":"好"},"finish_reason":"stop"}],"usage":null}\n\n',
-        'data: {"choices":[],"usage":{"prompt_tokens":4,"completion_tokens":2,"total_tokens":6}}\n\n',
+        'data: {"choices":[],"usage":{"prompt_tokens":4,"completion_tokens":9,"total_tokens":13,"completion_tokens_details":{"reasoning_tokens":7}}}\n\n',
         "data: [DONE]\n\n",
       ]),
     );
@@ -40,18 +42,28 @@ describe("DeepSeekProvider", () => {
     const events = [];
     for await (const event of provider.streamChat(
       [{ role: "user", content: "你好" }],
-      new AbortController().signal,
+      {
+        reasoningLevel: "max",
+        signal: new AbortController().signal,
+      },
     )) {
       events.push(event);
     }
 
     expect(events).toEqual([
+      { type: "phase", phase: "reasoning" },
+      { type: "phase", phase: "answer" },
       { type: "delta", text: "你" },
       { type: "delta", text: "好" },
       {
         type: "done",
         finishReason: "stop",
-        usage: { promptTokens: 4, completionTokens: 2, totalTokens: 6 },
+        usage: {
+          promptTokens: 4,
+          completionTokens: 9,
+          totalTokens: 13,
+          reasoningTokens: 7,
+        },
       },
     ]);
     const call = fetchImplementation.mock.calls[0];
@@ -64,10 +76,67 @@ describe("DeepSeekProvider", () => {
     >;
     expect(body).toMatchObject({
       model: "deepseek-v4-flash",
-      thinking: { type: "disabled" },
+      thinking: { type: "enabled" },
+      reasoning_effort: "max",
       stream: true,
       stream_options: { include_usage: true },
     });
+  });
+
+  it.each([
+    ["off", "disabled", undefined],
+    ["low", "enabled", "low"],
+    ["high", "enabled", "high"],
+    ["max", "enabled", "max"],
+  ] as const)(
+    "maps %s to the exact DeepSeek reasoning parameters",
+    async (reasoningLevel, thinkingType, reasoningEffort) => {
+      const fetchImplementation = vi.fn<typeof fetch>(async () =>
+        streamResponse(["data: [DONE]\n\n"]),
+      );
+      const provider = new DeepSeekProvider({
+        apiKey: "sk-test",
+        baseUrl: "https://api.deepseek.com",
+        model: "deepseek-v4-flash",
+        fetchImplementation,
+      });
+
+      for await (const _event of provider.streamChat(
+        [{ role: "user", content: "test" }],
+        {
+          reasoningLevel,
+          signal: new AbortController().signal,
+        },
+      )) {
+        // Consume the stream so the request body can be asserted.
+      }
+
+      const call = fetchImplementation.mock.calls[0];
+      expect(call).toBeDefined();
+      const [, request] = call as Parameters<typeof fetch>;
+      const body = JSON.parse(request?.body as string) as Record<
+        string,
+        unknown
+      >;
+      expect(body.thinking).toEqual({ type: thinkingType });
+      expect(body.reasoning_effort).toBe(reasoningEffort);
+    },
+  );
+
+  it("advertises model-specific reasoning capabilities", () => {
+    const flash = new DeepSeekProvider({
+      apiKey: "sk-test",
+      baseUrl: "https://api.deepseek.com",
+      model: "deepseek-v4-flash",
+    });
+    const pro = new DeepSeekProvider({
+      apiKey: "sk-test",
+      baseUrl: "https://api.deepseek.com",
+      model: "deepseek-v4-pro",
+    });
+
+    expect(flash.reasoningLevels).toEqual(["off", "low", "high", "max"]);
+    expect(pro.reasoningLevels).toEqual(["off", "high", "max"]);
   });
 
   it("maps upstream authentication errors without exposing response bodies", async () => {
@@ -84,7 +153,10 @@ describe("DeepSeekProvider", () => {
     try {
       const stream = provider.streamChat(
         [{ role: "user", content: "test" }],
-        new AbortController().signal,
+        {
+          reasoningLevel: "off",
+          signal: new AbortController().signal,
+        },
       );
       await stream[Symbol.asyncIterator]().next();
     } catch (error) {
@@ -117,7 +189,10 @@ describe("DeepSeekProvider", () => {
     try {
       for await (const event of provider.streamChat(
         [{ role: "user", content: "test" }],
-        new AbortController().signal,
+        {
+          reasoningLevel: "off",
+          signal: new AbortController().signal,
+        },
       )) {
         events.push(event);
       }
@@ -125,7 +200,10 @@ describe("DeepSeekProvider", () => {
       thrown = error;
     }
 
-    expect(events).toEqual([{ type: "delta", text: "partial" }]);
+    expect(events).toEqual([
+      { type: "phase", phase: "answer" },
+      { type: "delta", text: "partial" },
+    ]);
     expect(thrown).toMatchObject({ code: "UPSTREAM_STREAM_INTERRUPTED" });
   });
 });

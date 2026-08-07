@@ -7,6 +7,7 @@
 | 功能 | 文档 | 验收日期 |
 | --- | --- | --- |
 | 流式输出 | [本地 SSE 流式 AI 对话 MVP](streaming_output/local_sse_chat_mvp.md) | 2026-08-07 |
+| 推理强度切换 | [DeepSeek 推理强度切换](reasoning_effort_switch/deepseek_reasoning_effort_switch.md) | 2026-08-07 |
 
 ## 已验收修复
 

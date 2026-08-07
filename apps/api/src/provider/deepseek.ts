@@ -1,8 +1,14 @@
-import type { TokenUsage } from "@ai-chat/shared";
+import {
+  REASONING_LEVELS,
+  type GenerationPhase,
+  type ReasoningLevel,
+  type TokenUsage,
+} from "@ai-chat/shared";
 import type { ModelMessage } from "../db/repository.js";
 import { SseDataParser } from "./sse_data_parser.js";
 import {
   ProviderError,
+  type ChatGenerationOptions,
   type ChatProvider,
   type ProviderEvent,
 } from "./types.js";
@@ -11,6 +17,7 @@ interface DeepSeekChunk {
   choices?: Array<{
     delta?: {
       content?: string | null;
+      reasoning_content?: string | null;
     };
     finish_reason?: string | null;
   }>;
@@ -18,6 +25,9 @@ interface DeepSeekChunk {
     prompt_tokens?: number;
     completion_tokens?: number;
     total_tokens?: number;
+    completion_tokens_details?: {
+      reasoning_tokens?: number;
+    } | null;
   } | null;
 }
 
@@ -26,6 +36,29 @@ export interface DeepSeekProviderOptions {
   baseUrl: string;
   model: string;
   fetchImplementation?: typeof fetch;
+}
+
+const PRO_REASONING_LEVELS = ["off", "high", "max"] as const;
+const NON_REASONING_LEVELS = ["off"] as const;
+
+function supportedReasoningLevels(model: string): readonly ReasoningLevel[] {
+  if (model === "deepseek-v4-flash") {
+    return REASONING_LEVELS;
+  }
+  if (model === "deepseek-v4-pro") {
+    return PRO_REASONING_LEVELS;
+  }
+  return NON_REASONING_LEVELS;
+}
+
+function reasoningParameters(level: ReasoningLevel): Record<string, unknown> {
+  if (level === "off") {
+    return { thinking: { type: "disabled" } };
+  }
+  return {
+    thinking: { type: "enabled" },
+    reasoning_effort: level,
+  };
 }
 
 function mapHttpError(status: number): ProviderError {
@@ -83,25 +116,31 @@ function parseUsage(chunk: DeepSeekChunk): TokenUsage | null {
     promptTokens: usage.prompt_tokens,
     completionTokens: usage.completion_tokens,
     totalTokens: usage.total_tokens,
+    reasoningTokens:
+      typeof usage.completion_tokens_details?.reasoning_tokens === "number"
+        ? usage.completion_tokens_details.reasoning_tokens
+        : null,
   };
 }
 
 export class DeepSeekProvider implements ChatProvider {
   public readonly configured: boolean;
   public readonly model: string;
+  public readonly reasoningLevels: readonly ReasoningLevel[];
   private readonly endpoint: string;
   private readonly fetchImplementation: typeof fetch;
 
   public constructor(private readonly options: DeepSeekProviderOptions) {
     this.configured = options.apiKey.trim().length > 0;
     this.model = options.model;
+    this.reasoningLevels = supportedReasoningLevels(options.model);
     this.endpoint = `${options.baseUrl.replace(/\/$/, "")}/chat/completions`;
     this.fetchImplementation = options.fetchImplementation ?? fetch;
   }
 
   async *streamChat(
     messages: ModelMessage[],
-    signal: AbortSignal,
+    generation: ChatGenerationOptions,
   ): AsyncIterable<ProviderEvent> {
     let response: Response;
     try {
@@ -115,14 +154,14 @@ export class DeepSeekProvider implements ChatProvider {
         body: JSON.stringify({
           model: this.model,
           messages,
-          thinking: { type: "disabled" },
+          ...reasoningParameters(generation.reasoningLevel),
           stream: true,
           stream_options: { include_usage: true },
         }),
-        signal,
+        signal: generation.signal,
       });
     } catch (error) {
-      if (signal.aborted) {
+      if (generation.signal.aborted) {
         throw error;
       }
       throw new ProviderError(
@@ -149,6 +188,7 @@ export class DeepSeekProvider implements ChatProvider {
     const parser = new SseDataParser();
     let finishReason: string | null = null;
     let usage: TokenUsage | null = null;
+    let phase: GenerationPhase | null = null;
 
     const consumeData = (data: string): DeepSeekChunk | "done" => {
       if (data.trim() === "[DONE]") {
@@ -184,8 +224,21 @@ export class DeepSeekProvider implements ChatProvider {
           if (choice?.finish_reason !== undefined && choice.finish_reason !== null) {
             finishReason = choice.finish_reason;
           }
+          const reasoningText = choice?.delta?.reasoning_content;
+          if (
+            typeof reasoningText === "string" &&
+            reasoningText.length > 0 &&
+            phase !== "reasoning"
+          ) {
+            phase = "reasoning";
+            yield { type: "phase", phase };
+          }
           const text = choice?.delta?.content;
           if (typeof text === "string" && text.length > 0) {
+            if (phase !== "answer") {
+              phase = "answer";
+              yield { type: "phase", phase };
+            }
             yield { type: "delta", text };
           }
         }
@@ -205,4 +258,3 @@ export class DeepSeekProvider implements ChatProvider {
     );
   }
 }
-

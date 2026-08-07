@@ -10,13 +10,12 @@ import {
 import {
   AlertCircle,
   ArrowDown,
-  Check,
-  Cpu,
   X,
 } from "lucide-vue-next";
 import ChatComposer from "./components/ChatComposer.vue";
 import ChatMessage from "./components/ChatMessage.vue";
 import EmptyState from "./components/EmptyState.vue";
+import ReasoningSelector from "./components/ReasoningSelector.vue";
 import { useChat } from "./composables/use_chat";
 
 const {
@@ -25,8 +24,12 @@ const {
   streamState,
   isGenerating,
   errorMessage,
+  model,
+  reasoningLevels,
+  reasoningLevel,
   loadChat,
   sendMessage,
+  setReasoningLevel,
   stopGeneration,
   dismissError,
 } = useChat();
@@ -41,6 +44,9 @@ let contentResizeObserver: ResizeObserver | null = null;
 const statusText = computed(() => {
   if (streamState.value === "connecting") {
     return "正在连接";
+  }
+  if (streamState.value === "reasoning") {
+    return "正在深度思考";
   }
   if (streamState.value === "streaming") {
     return "正在生成";
@@ -94,7 +100,7 @@ function submit(): void {
   }
   draft.value = "";
   followOutput.value = true;
-  void sendMessage(content);
+  void sendMessage(content, reasoningLevel.value);
 }
 
 watch(
@@ -142,12 +148,13 @@ onBeforeUnmount(() => {
           <span class="status-dot" :class="{ active: isGenerating }" />
           {{ statusText }}
         </div>
-        <div class="model-pill">
-          <Cpu :size="14" />
-          <span class="model-name-long">DeepSeek V4 Flash</span>
-          <span class="model-name-short">V4 Flash</span>
-          <span class="model-mode"><Check :size="11" />非思考</span>
-        </div>
+        <ReasoningSelector
+          :model="model"
+          :model-value="reasoningLevel"
+          :levels="reasoningLevels"
+          :disabled="isGenerating"
+          @update:model-value="setReasoningLevel"
+        />
       </div>
     </header>
 

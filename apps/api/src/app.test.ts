@@ -1,33 +1,46 @@
 import { resolve } from "node:path";
-import type { ChatResponse } from "@ai-chat/shared";
+import {
+  REASONING_LEVELS,
+  type ChatResponse,
+  type ReasoningLevel,
+} from "@ai-chat/shared";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildApp } from "./app.js";
 import { findWorkspaceRoot, loadConfig } from "./config.js";
 import type { ModelMessage } from "./db/repository.js";
 import {
   ProviderError,
+  type ChatGenerationOptions,
   type ChatProvider,
   type ProviderEvent,
 } from "./provider/types.js";
 
 type StreamFactory = (
   messages: ModelMessage[],
-  signal: AbortSignal,
+  options: ChatGenerationOptions,
 ) => AsyncIterable<ProviderEvent>;
 
 class FakeProvider implements ChatProvider {
   public readonly configured = true;
   public readonly model = "deepseek-v4-flash";
+  public readonly reasoningLevels: readonly ReasoningLevel[];
   public capturedMessages: ModelMessage[] = [];
+  public capturedReasoningLevel: ReasoningLevel | null = null;
 
-  public constructor(private readonly factory: StreamFactory) {}
+  public constructor(
+    private readonly factory: StreamFactory,
+    reasoningLevels: readonly ReasoningLevel[] = REASONING_LEVELS,
+  ) {
+    this.reasoningLevels = reasoningLevels;
+  }
 
   streamChat(
     messages: ModelMessage[],
-    signal: AbortSignal,
+    options: ChatGenerationOptions,
   ): AsyncIterable<ProviderEvent> {
     this.capturedMessages = messages;
-    return this.factory(messages, signal);
+    this.capturedReasoningLevel = options.reasoningLevel;
+    return this.factory(messages, options);
   }
 }
 
@@ -89,12 +102,19 @@ describe("chat API", () => {
 
   it("streams named SSE events and persists the completed assistant message", async () => {
     const provider = new FakeProvider(async function* () {
+      yield { type: "phase", phase: "reasoning" };
+      yield { type: "phase", phase: "answer" };
       yield { type: "delta", text: "你好，" };
       yield { type: "delta", text: "世界" };
       yield {
         type: "done",
         finishReason: "stop",
-        usage: { promptTokens: 8, completionTokens: 3, totalTokens: 11 },
+        usage: {
+          promptTokens: 8,
+          completionTokens: 3,
+          totalTokens: 11,
+          reasoningTokens: 1,
+        },
       };
     });
     const { app, url } = await createTestServer(provider);
@@ -103,18 +123,25 @@ describe("chat API", () => {
     const response = await fetch(`${url}/api/chat/messages`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content: "打个招呼" }),
+      body: JSON.stringify({ content: "打个招呼", reasoningLevel: "high" }),
     });
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toContain("text/event-stream");
     const events = parseEvents(await response.text());
     expect(events.map((event) => event.event)).toEqual([
       "meta",
+      "phase",
+      "phase",
       "delta",
       "delta",
       "done",
     ]);
-    expect(events[1]?.data).toMatchObject({ text: "你好，" });
+    expect(events[0]?.data).toMatchObject({
+      model: "deepseek-v4-flash",
+      reasoningLevel: "high",
+    });
+    expect(events[1]?.data).toMatchObject({ phase: "reasoning" });
+    expect(events[3]?.data).toMatchObject({ text: "你好，" });
 
     const chat = (await (
       await fetch(`${url}/api/chat`)
@@ -123,11 +150,18 @@ describe("chat API", () => {
       role: "assistant",
       content: "你好，世界",
       status: "completed",
-      usage: { promptTokens: 8, completionTokens: 3, totalTokens: 11 },
+      reasoningLevel: "high",
+      usage: {
+        promptTokens: 8,
+        completionTokens: 3,
+        totalTokens: 11,
+        reasoningTokens: 1,
+      },
     });
     expect(provider.capturedMessages).toEqual([
       { role: "user", content: "打个招呼" },
     ]);
+    expect(provider.capturedReasoningLevel).toBe("high");
   });
 
   it("rejects invalid input before creating a turn", async () => {
@@ -143,6 +177,42 @@ describe("chat API", () => {
       body: JSON.stringify({ content: "   " }),
     });
     expect(response.status).toBe(400);
+    const chat = (await (
+      await fetch(`${url}/api/chat`)
+    ).json()) as ChatResponse;
+    expect(chat.messages).toHaveLength(0);
+  });
+
+  it("rejects invalid and unsupported reasoning levels before creating a turn", async () => {
+    const provider = new FakeProvider(
+      async function* () {
+        yield { type: "done", finishReason: "stop", usage: null };
+      },
+      ["off", "high"],
+    );
+    const { app, url } = await createTestServer(provider);
+    openApps.push(app);
+
+    const invalid = await fetch(`${url}/api/chat/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: "测试", reasoningLevel: "turbo" }),
+    });
+    expect(invalid.status).toBe(400);
+    expect(await invalid.json()).toMatchObject({
+      error: { code: "INVALID_REASONING_LEVEL" },
+    });
+
+    const unsupported = await fetch(`${url}/api/chat/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: "测试", reasoningLevel: "low" }),
+    });
+    expect(unsupported.status).toBe(400);
+    expect(await unsupported.json()).toMatchObject({
+      error: { code: "UNSUPPORTED_REASONING_LEVEL" },
+    });
+
     const chat = (await (
       await fetch(`${url}/api/chat`)
     ).json()) as ChatResponse;
@@ -178,14 +248,15 @@ describe("chat API", () => {
   });
 
   it("rejects concurrent generations and marks a disconnected stream stopped", async () => {
-    const provider = new FakeProvider(async function* (_messages, signal) {
+    const provider = new FakeProvider(async function* (_messages, options) {
       yield { type: "delta", text: "已经生成的部分" };
       await new Promise<void>((_resolve, reject) => {
-        const abort = () => reject(signal.reason ?? new Error("aborted"));
-        if (signal.aborted) {
+        const abort = () =>
+          reject(options.signal.reason ?? new Error("aborted"));
+        if (options.signal.aborted) {
           abort();
         } else {
-          signal.addEventListener("abort", abort, { once: true });
+          options.signal.addEventListener("abort", abort, { once: true });
         }
       });
     });
@@ -225,4 +296,3 @@ describe("chat API", () => {
     });
   });
 });
-

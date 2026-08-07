@@ -3,6 +3,7 @@ import type {
   ChatMessage,
   ChatResponse,
   MessageStatus,
+  ReasoningLevel,
   TokenUsage,
 } from "@ai-chat/shared";
 import { and, asc, eq, max } from "drizzle-orm";
@@ -50,12 +51,14 @@ function toChatMessage(row: MessageRow): ChatMessage {
     content: row.content,
     status: row.status,
     model: row.model,
+    reasoningLevel: row.reasoningLevel,
     finishReason: row.finishReason,
     usage: hasUsage
       ? {
           promptTokens: row.promptTokens as number,
           completionTokens: row.completionTokens as number,
           totalTokens: row.totalTokens as number,
+          reasoningTokens: row.reasoningTokens,
         }
       : null,
     errorCode: row.errorCode,
@@ -123,7 +126,11 @@ export class ChatRepository {
     };
   }
 
-  beginTurn(content: string, model: string): TurnMessages {
+  beginTurn(
+    content: string,
+    model: string,
+    reasoningLevel: ReasoningLevel,
+  ): TurnMessages {
     this.ensureDefaultConversation();
 
     return this.database.db.transaction((transaction) => {
@@ -145,10 +152,12 @@ export class ChatRepository {
         content,
         status: "completed",
         model: null,
+        reasoningLevel: null,
         finishReason: null,
         promptTokens: null,
         completionTokens: null,
         totalTokens: null,
+        reasoningTokens: null,
         errorCode: null,
         createdAt: now,
         updatedAt: now,
@@ -162,10 +171,12 @@ export class ChatRepository {
         content: "",
         status: "streaming",
         model,
+        reasoningLevel,
         finishReason: null,
         promptTokens: null,
         completionTokens: null,
         totalTokens: null,
+        reasoningTokens: null,
         errorCode: null,
         createdAt: now,
         updatedAt: now,
@@ -197,6 +208,7 @@ export class ChatRepository {
           promptTokens: input.usage?.promptTokens ?? null,
           completionTokens: input.usage?.completionTokens ?? null,
           totalTokens: input.usage?.totalTokens ?? null,
+          reasoningTokens: input.usage?.reasoningTokens ?? null,
           errorCode: input.errorCode,
           updatedAt: now,
         })

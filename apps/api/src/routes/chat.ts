@@ -1,5 +1,6 @@
 import type { ServerResponse } from "node:http";
 import {
+  DEFAULT_REASONING_LEVEL,
   sendMessageRequestSchema,
   type ApiErrorResponse,
   type StreamDeltaData,
@@ -7,6 +8,7 @@ import {
   type StreamErrorCode,
   type StreamErrorData,
   type StreamMetaData,
+  type StreamPhaseData,
   type TokenUsage,
 } from "@ai-chat/shared";
 import type { FastifyInstance } from "fastify";
@@ -81,6 +83,10 @@ export function registerChatRoutes(
     database: "ready" as const,
     providerConfigured: options.provider.configured,
     model: options.provider.model,
+    reasoningCapabilities: {
+      levels: [...options.provider.reasoningLevels],
+      defaultLevel: DEFAULT_REASONING_LEVEL,
+    },
   }));
 
   app.get("/api/chat", async () => options.repository.getChat());
@@ -88,12 +94,28 @@ export function registerChatRoutes(
   app.post("/api/chat/messages", async (request, reply) => {
     const parsed = sendMessageRequestSchema.safeParse(request.body);
     if (!parsed.success) {
+      const issue = parsed.error.issues[0];
+      const invalidReasoningLevel = issue?.path[0] === "reasoningLevel";
       return reply.status(400).send(
         jsonError(
-          "INVALID_MESSAGE",
-          parsed.error.issues[0]?.message ?? "消息格式无效",
+          invalidReasoningLevel
+            ? "INVALID_REASONING_LEVEL"
+            : "INVALID_MESSAGE",
+          invalidReasoningLevel
+            ? "推理强度无效"
+            : issue?.message ?? "消息格式无效",
         ),
       );
+    }
+    if (!options.provider.reasoningLevels.includes(parsed.data.reasoningLevel)) {
+      return reply
+        .status(400)
+        .send(
+          jsonError(
+            "UNSUPPORTED_REASONING_LEVEL",
+            "当前模型不支持所选推理强度",
+          ),
+        );
     }
     if (!options.provider.configured) {
       return reply
@@ -112,6 +134,7 @@ export function registerChatRoutes(
       turn = options.repository.beginTurn(
         parsed.data.content,
         options.provider.model,
+        parsed.data.reasoningLevel,
       );
     } catch (error) {
       generationActive = false;
@@ -131,6 +154,8 @@ export function registerChatRoutes(
       userMessageId: turn.userMessage.id,
       assistantMessageId: turn.assistantMessage.id,
       turnId: turn.userMessage.turnId,
+      model: options.provider.model,
+      reasoningLevel: parsed.data.reasoningLevel,
     };
     writeSse(response, "meta", meta);
 
@@ -170,8 +195,21 @@ export function registerChatRoutes(
       const history = options.repository.getModelHistory();
       for await (const providerEvent of options.provider.streamChat(
         history,
-        upstreamController.signal,
+        {
+          signal: upstreamController.signal,
+          reasoningLevel: parsed.data.reasoningLevel,
+        },
       )) {
+        if (providerEvent.type === "phase") {
+          const phase: StreamPhaseData = {
+            assistantMessageId: turn.assistantMessage.id,
+            phase: providerEvent.phase,
+          };
+          if (!writeSse(response, "phase", phase)) {
+            disconnect();
+          }
+          continue;
+        }
         if (providerEvent.type === "delta") {
           assistantContent += providerEvent.text;
           const delta: StreamDeltaData = {
@@ -259,4 +297,3 @@ export function registerChatRoutes(
     return undefined;
   });
 }
-

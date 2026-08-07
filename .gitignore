@@ -20,6 +20,7 @@ test-results/
 !**/.env.example
 
 # Local SQLite databases and sidecar files
+data/
 *.db
 *.db-*
 *.sqlite

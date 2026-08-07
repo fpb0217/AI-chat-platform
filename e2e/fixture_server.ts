@@ -4,6 +4,7 @@ import { findWorkspaceRoot, loadConfig } from "../apps/api/src/config.js";
 import type { ModelMessage } from "../apps/api/src/db/repository.js";
 import {
   ProviderError,
+  type ChatGenerationOptions,
   type ChatProvider,
   type ProviderEvent,
 } from "../apps/api/src/provider/types.js";
@@ -27,12 +28,20 @@ function wait(milliseconds: number, signal: AbortSignal): Promise<void> {
 class E2eProvider implements ChatProvider {
   public readonly configured = true;
   public readonly model = "deepseek-v4-flash";
+  public readonly reasoningLevels = ["off", "low", "high", "max"] as const;
 
   async *streamChat(
     messages: ModelMessage[],
-    signal: AbortSignal,
+    options: ChatGenerationOptions,
   ): AsyncIterable<ProviderEvent> {
     const prompt = messages.at(-1)?.content ?? "";
+    const { signal } = options;
+
+    if (options.reasoningLevel !== "off") {
+      yield { type: "phase", phase: "reasoning" };
+      await wait(450, signal);
+    }
+    yield { type: "phase", phase: "answer" };
 
     if (prompt.includes("触发错误")) {
       yield { type: "delta", text: "已经收到部分内容。" };
@@ -72,7 +81,12 @@ class E2eProvider implements ChatProvider {
     yield {
       type: "done",
       finishReason: "stop",
-      usage: { promptTokens: 6, completionTokens: 12, totalTokens: 18 },
+      usage: {
+        promptTokens: 6,
+        completionTokens: 12,
+        totalTokens: 18,
+        reasoningTokens: options.reasoningLevel === "off" ? null : 5,
+      },
     };
   }
 }

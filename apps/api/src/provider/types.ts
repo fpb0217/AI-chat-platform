@@ -1,7 +1,13 @@
-import type { StreamErrorCode, TokenUsage } from "@ai-chat/shared";
+import type {
+  GenerationPhase,
+  ReasoningLevel,
+  StreamErrorCode,
+  TokenUsage,
+} from "@ai-chat/shared";
 import type { ModelMessage } from "../db/repository.js";
 
 export type ProviderEvent =
+  | { type: "phase"; phase: GenerationPhase }
   | { type: "delta"; text: string }
   | {
       type: "done";
@@ -9,12 +15,18 @@ export type ProviderEvent =
       usage: TokenUsage | null;
     };
 
+export interface ChatGenerationOptions {
+  signal: AbortSignal;
+  reasoningLevel: ReasoningLevel;
+}
+
 export interface ChatProvider {
   readonly configured: boolean;
   readonly model: string;
+  readonly reasoningLevels: readonly ReasoningLevel[];
   streamChat(
     messages: ModelMessage[],
-    signal: AbortSignal,
+    options: ChatGenerationOptions,
   ): AsyncIterable<ProviderEvent>;
 }
 
@@ -29,4 +41,3 @@ export class ProviderError extends Error {
     this.name = "ProviderError";
   }
 }
-

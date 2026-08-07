@@ -1,6 +1,8 @@
 import { z } from "zod";
 
 export const MAX_MESSAGE_LENGTH = 20_000;
+export const REASONING_LEVELS = ["off", "low", "high", "max"] as const;
+export const DEFAULT_REASONING_LEVEL = "off" as const;
 
 export const messageRoleSchema = z.enum(["user", "assistant"]);
 export const messageStatusSchema = z.enum([
@@ -9,9 +11,13 @@ export const messageStatusSchema = z.enum([
   "stopped",
   "error",
 ]);
+export const reasoningLevelSchema = z.enum(REASONING_LEVELS);
+export const generationPhaseSchema = z.enum(["reasoning", "answer"]);
 
 export type MessageRole = z.infer<typeof messageRoleSchema>;
 export type MessageStatus = z.infer<typeof messageStatusSchema>;
+export type ReasoningLevel = z.infer<typeof reasoningLevelSchema>;
+export type GenerationPhase = z.infer<typeof generationPhaseSchema>;
 
 export const sendMessageRequestSchema = z.object({
   content: z
@@ -19,6 +25,7 @@ export const sendMessageRequestSchema = z.object({
     .trim()
     .min(1, "请输入消息")
     .max(MAX_MESSAGE_LENGTH, `消息不能超过 ${MAX_MESSAGE_LENGTH} 个字符`),
+  reasoningLevel: reasoningLevelSchema.default(DEFAULT_REASONING_LEVEL),
 });
 
 export type SendMessageRequest = z.infer<typeof sendMessageRequestSchema>;
@@ -27,6 +34,7 @@ export interface TokenUsage {
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
+  reasoningTokens: number | null;
 }
 
 export interface Conversation {
@@ -45,6 +53,7 @@ export interface ChatMessage {
   content: string;
   status: MessageStatus;
   model: string | null;
+  reasoningLevel: ReasoningLevel | null;
   finishReason: string | null;
   usage: TokenUsage | null;
   errorCode: string | null;
@@ -62,6 +71,10 @@ export interface HealthResponse {
   database: "ready";
   providerConfigured: boolean;
   model: string;
+  reasoningCapabilities: {
+    levels: ReasoningLevel[];
+    defaultLevel: ReasoningLevel;
+  };
 }
 
 export type StreamErrorCode =
@@ -78,6 +91,13 @@ export interface StreamMetaData {
   userMessageId: string;
   assistantMessageId: string;
   turnId: string;
+  model: string;
+  reasoningLevel: ReasoningLevel;
+}
+
+export interface StreamPhaseData {
+  assistantMessageId: string;
+  phase: GenerationPhase;
 }
 
 export interface StreamDeltaData {
@@ -100,6 +120,7 @@ export interface StreamErrorData {
 
 export type StreamEvent =
   | { event: "meta"; data: StreamMetaData }
+  | { event: "phase"; data: StreamPhaseData }
   | { event: "delta"; data: StreamDeltaData }
   | { event: "done"; data: StreamDoneData }
   | { event: "error"; data: StreamErrorData };

@@ -21,6 +21,32 @@ test.describe.serial("local streaming chat", () => {
     ).toBeVisible();
   });
 
+  test("uses max reasoning, reports its phase and restores its message label", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await page
+      .getByRole("button", { name: /推理强度：关闭/u })
+      .click();
+    await page.getByRole("option", { name: /最大/u }).click();
+    await expect(
+      page.getByRole("button", { name: /推理强度：最大/u }),
+    ).toBeVisible();
+
+    await page.getByLabel("输入消息").fill("请使用最大推理档位");
+    await page.getByRole("button", { name: "发送消息" }).click();
+    await expect(page.getByText("正在深度思考", { exact: true })).toBeVisible();
+
+    const assistant = page.locator(".message-row-assistant").last();
+    await expect(assistant).toContainText("最大推理");
+    await expect(assistant).toContainText("这是一个逐字出现的流式回答。");
+
+    await page.reload();
+    const restored = page.locator(".message-row-assistant").last();
+    await expect(restored).toContainText("最大推理");
+    await expect(restored).toContainText("这是一个逐字出现的流式回答。");
+  });
+
   test("stops generation and persists the partial answer", async ({ page }) => {
     await page.goto("/");
     await page.getByLabel("输入消息").fill("请给我一个慢回答");
@@ -80,6 +106,8 @@ test.describe.serial("local streaming chat", () => {
     await page.goto("/");
     await expect(page.getByLabel("输入消息")).toBeVisible();
     await expect(page.getByText("V4 Flash", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: /推理强度：关闭/u }).click();
+    await expect(page.getByRole("listbox", { name: "推理强度" })).toBeVisible();
 
     const hasHorizontalOverflow = await page.evaluate(
       () => document.documentElement.scrollWidth > window.innerWidth,

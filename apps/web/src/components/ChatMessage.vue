@@ -1,11 +1,25 @@
 <script setup lang="ts">
-import type { ChatMessage } from "@ai-chat/shared";
+import { computed } from "vue";
+import type { ChatMessage, ReasoningLevel } from "@ai-chat/shared";
 import { Bot, CircleAlert, CircleStop, UserRound } from "lucide-vue-next";
 import MarkdownContent from "./MarkdownContent.vue";
 
-defineProps<{
+const props = defineProps<{
   message: ChatMessage;
 }>();
+
+const REASONING_LABELS: Record<ReasoningLevel, string> = {
+  off: "非思考",
+  low: "低推理",
+  high: "高推理",
+  max: "最大推理",
+};
+
+const reasoningLabel = computed(() =>
+  props.message.reasoningLevel
+    ? REASONING_LABELS[props.message.reasoningLevel]
+    : null,
+);
 </script>
 
 <template>
@@ -25,7 +39,13 @@ defineProps<{
 
     <div class="message-content">
       <div class="message-author">
-        {{ message.role === "user" ? "你" : "DeepSeek" }}
+        <span>{{ message.role === "user" ? "你" : "DeepSeek" }}</span>
+        <span
+          v-if="message.role === 'assistant' && reasoningLabel"
+          class="message-reasoning-level"
+        >
+          {{ reasoningLabel }}
+        </span>
       </div>
       <div v-if="message.role === 'user'" class="user-bubble">
         {{ message.content }}
@@ -52,4 +72,3 @@ defineProps<{
     </div>
   </article>
 </template>
-

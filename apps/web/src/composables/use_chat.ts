@@ -5,14 +5,19 @@ import {
   ref,
   type Ref,
 } from "vue";
-import type {
-  ApiErrorResponse,
-  ChatMessage,
-  ChatResponse,
-  StreamDeltaData,
-  StreamDoneData,
-  StreamErrorData,
-  StreamMetaData,
+import {
+  DEFAULT_REASONING_LEVEL,
+  reasoningLevelSchema,
+  type ApiErrorResponse,
+  type ChatMessage,
+  type ChatResponse,
+  type HealthResponse,
+  type ReasoningLevel,
+  type StreamDeltaData,
+  type StreamDoneData,
+  type StreamErrorData,
+  type StreamMetaData,
+  type StreamPhaseData,
 } from "@ai-chat/shared";
 import { SseEventParser, type ParsedSseEvent } from "../lib/sse";
 import { TypewriterBuffer } from "../lib/typewriter";
@@ -20,8 +25,11 @@ import { TypewriterBuffer } from "../lib/typewriter";
 export type StreamState =
   | "idle"
   | "connecting"
+  | "reasoning"
   | "streaming"
   | "draining";
+
+const REASONING_PREFERENCE_KEY = "ai-chat.reasoning-level.v1";
 
 interface UseChatResult {
   messages: Ref<ChatMessage[]>;
@@ -29,8 +37,15 @@ interface UseChatResult {
   streamState: Ref<StreamState>;
   isGenerating: Readonly<Ref<boolean>>;
   errorMessage: Ref<string | null>;
+  model: Ref<string>;
+  reasoningLevels: Ref<ReasoningLevel[]>;
+  reasoningLevel: Ref<ReasoningLevel>;
   loadChat: () => Promise<void>;
-  sendMessage: (content: string) => Promise<void>;
+  sendMessage: (
+    content: string,
+    reasoningLevel?: ReasoningLevel,
+  ) => Promise<void>;
+  setReasoningLevel: (level: ReasoningLevel) => void;
   stopGeneration: () => void;
   dismissError: () => void;
 }
@@ -44,6 +59,7 @@ function optimisticMessage(
   content: string,
   position: number,
   turnId: string,
+  reasoningLevel: ReasoningLevel,
 ): ChatMessage {
   const now = nowIso();
   return {
@@ -55,12 +71,33 @@ function optimisticMessage(
     content,
     status: role === "assistant" ? "streaming" : "completed",
     model: role === "assistant" ? "deepseek-v4-flash" : null,
+    reasoningLevel: role === "assistant" ? reasoningLevel : null,
     finishReason: null,
     usage: null,
     errorCode: null,
     createdAt: now,
     updatedAt: now,
   };
+}
+
+function isReasoningLevel(value: unknown): value is ReasoningLevel {
+  return reasoningLevelSchema.safeParse(value).success;
+}
+
+function readReasoningPreference(
+  supportedLevels: ReasoningLevel[],
+): ReasoningLevel {
+  const fallback = supportedLevels.includes(DEFAULT_REASONING_LEVEL)
+    ? DEFAULT_REASONING_LEVEL
+    : supportedLevels[0] ?? DEFAULT_REASONING_LEVEL;
+  try {
+    const stored = window.localStorage.getItem(REASONING_PREFERENCE_KEY);
+    return isReasoningLevel(stored) && supportedLevels.includes(stored)
+      ? stored
+      : fallback;
+  } catch {
+    return fallback;
+  }
 }
 
 async function readApiError(response: Response): Promise<string> {
@@ -81,6 +118,9 @@ export function useChat(): UseChatResult {
   const loading = ref(true);
   const streamState = ref<StreamState>("idle");
   const errorMessage = ref<string | null>(null);
+  const model = ref("deepseek-v4-flash");
+  const reasoningLevels = ref<ReasoningLevel[]>([DEFAULT_REASONING_LEVEL]);
+  const reasoningLevel = ref<ReasoningLevel>(DEFAULT_REASONING_LEVEL);
   const isGenerating = computed(() => streamState.value !== "idle");
   let activeController: AbortController | null = null;
   let activeWriter: TypewriterBuffer | null = null;
@@ -89,14 +129,34 @@ export function useChat(): UseChatResult {
   async function loadChat(): Promise<void> {
     loading.value = true;
     try {
-      const response = await fetch("/api/chat", {
-        headers: { Accept: "application/json" },
-      });
-      if (!response.ok) {
-        throw new Error(await readApiError(response));
+      const [chatResponse, healthResponse] = await Promise.all([
+        fetch("/api/chat", {
+          headers: { Accept: "application/json" },
+        }),
+        fetch("/api/health", {
+          headers: { Accept: "application/json" },
+        }),
+      ]);
+      if (!chatResponse.ok) {
+        throw new Error(await readApiError(chatResponse));
       }
-      const chat = (await response.json()) as ChatResponse;
+      if (!healthResponse.ok) {
+        throw new Error(await readApiError(healthResponse));
+      }
+      const [chat, health] = (await Promise.all([
+        chatResponse.json(),
+        healthResponse.json(),
+      ])) as [ChatResponse, HealthResponse];
+      const supportedLevels = (
+        health.reasoningCapabilities?.levels ?? [DEFAULT_REASONING_LEVEL]
+      ).filter(isReasoningLevel);
       messages.value = chat.messages;
+      model.value = health.model;
+      reasoningLevels.value =
+        supportedLevels.length > 0
+          ? supportedLevels
+          : [DEFAULT_REASONING_LEVEL];
+      reasoningLevel.value = readReasoningPreference(reasoningLevels.value);
       errorMessage.value = null;
     } catch (error) {
       errorMessage.value =
@@ -115,6 +175,8 @@ export function useChat(): UseChatResult {
     user.turnId = data.turnId;
     assistant.id = data.assistantMessageId;
     assistant.turnId = data.turnId;
+    assistant.model = data.model;
+    assistant.reasoningLevel = data.reasoningLevel;
   }
 
   async function handleEvent(
@@ -132,6 +194,14 @@ export function useChat(): UseChatResult {
 
     if (parsedEvent.event === "meta") {
       applyMeta(data as StreamMetaData, user, assistant);
+      return "continue";
+    }
+    if (parsedEvent.event === "phase") {
+      const phase = data as StreamPhaseData;
+      if (phase.assistantMessageId === assistant.id) {
+        streamState.value =
+          phase.phase === "reasoning" ? "reasoning" : "streaming";
+      }
       return "continue";
     }
     if (parsedEvent.event === "delta") {
@@ -164,9 +234,16 @@ export function useChat(): UseChatResult {
     return "continue";
   }
 
-  async function sendMessage(rawContent: string): Promise<void> {
+  async function sendMessage(
+    rawContent: string,
+    requestedReasoningLevel = reasoningLevel.value,
+  ): Promise<void> {
     const content = rawContent.trim();
     if (!content || isGenerating.value) {
+      return;
+    }
+    if (!reasoningLevels.value.includes(requestedReasoningLevel)) {
+      errorMessage.value = "当前模型不支持所选推理强度";
       return;
     }
 
@@ -180,6 +257,7 @@ export function useChat(): UseChatResult {
         content,
         highestPosition + 1,
         localTurnId,
+        requestedReasoningLevel,
       ),
     );
     const assistant = reactive(
@@ -188,6 +266,7 @@ export function useChat(): UseChatResult {
         "",
         highestPosition + 2,
         localTurnId,
+        requestedReasoningLevel,
       ),
     );
     messages.value.push(user, assistant);
@@ -210,7 +289,10 @@ export function useChat(): UseChatResult {
           Accept: "text/event-stream",
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ content }),
+        body: JSON.stringify({
+          content,
+          reasoningLevel: requestedReasoningLevel,
+        }),
         signal: controller.signal,
       });
 
@@ -284,6 +366,18 @@ export function useChat(): UseChatResult {
     }
   }
 
+  function setReasoningLevel(level: ReasoningLevel): void {
+    if (isGenerating.value || !reasoningLevels.value.includes(level)) {
+      return;
+    }
+    reasoningLevel.value = level;
+    try {
+      window.localStorage.setItem(REASONING_PREFERENCE_KEY, level);
+    } catch {
+      // A blocked storage API must not prevent changing the in-memory setting.
+    }
+  }
+
   function stopGeneration(): void {
     if (!activeController) {
       return;
@@ -311,8 +405,12 @@ export function useChat(): UseChatResult {
     streamState,
     isGenerating,
     errorMessage,
+    model,
+    reasoningLevels,
+    reasoningLevel,
     loadChat,
     sendMessage,
+    setReasoningLevel,
     stopGeneration,
     dismissError,
   };

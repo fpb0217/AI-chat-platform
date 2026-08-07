@@ -22,7 +22,7 @@ describe("ChatRepository", () => {
   });
 
   it("stores a turn in deterministic order and finalizes usage", () => {
-    const turn = repository.beginTurn("第一问", "deepseek-v4-flash");
+    const turn = repository.beginTurn("第一问", "deepseek-v4-flash", "high");
     expect(repository.getModelHistory()).toEqual([
       { role: "user", content: "第一问" },
     ]);
@@ -31,7 +31,12 @@ describe("ChatRepository", () => {
       content: "第一答",
       status: "completed",
       finishReason: "stop",
-      usage: { promptTokens: 3, completionTokens: 2, totalTokens: 5 },
+      usage: {
+        promptTokens: 3,
+        completionTokens: 2,
+        totalTokens: 5,
+        reasoningTokens: 1,
+      },
       errorCode: null,
     });
 
@@ -40,8 +45,14 @@ describe("ChatRepository", () => {
     expect(chat.messages[1]).toMatchObject({
       content: "第一答",
       status: "completed",
+      reasoningLevel: "high",
       finishReason: "stop",
-      usage: { promptTokens: 3, completionTokens: 2, totalTokens: 5 },
+      usage: {
+        promptTokens: 3,
+        completionTokens: 2,
+        totalTokens: 5,
+        reasoningTokens: 1,
+      },
     });
     expect(repository.getModelHistory()).toEqual([
       { role: "user", content: "第一问" },
@@ -50,7 +61,11 @@ describe("ChatRepository", () => {
   });
 
   it("excludes empty failed turns but retains partial stopped answers", () => {
-    const failed = repository.beginTurn("失败的问题", "deepseek-v4-flash");
+    const failed = repository.beginTurn(
+      "失败的问题",
+      "deepseek-v4-flash",
+      "off",
+    );
     repository.finalizeAssistant(failed.assistantMessage.id, {
       content: "",
       status: "error",
@@ -58,7 +73,11 @@ describe("ChatRepository", () => {
       usage: null,
       errorCode: "UPSTREAM_UNAVAILABLE",
     });
-    const stopped = repository.beginTurn("被停止的问题", "deepseek-v4-flash");
+    const stopped = repository.beginTurn(
+      "被停止的问题",
+      "deepseek-v4-flash",
+      "max",
+    );
     repository.finalizeAssistant(stopped.assistantMessage.id, {
       content: "部分回答",
       status: "stopped",
@@ -74,7 +93,7 @@ describe("ChatRepository", () => {
   });
 
   it("marks orphaned streaming rows as stopped on startup", () => {
-    repository.beginTurn("进行中", "deepseek-v4-flash");
+    repository.beginTurn("进行中", "deepseek-v4-flash", "low");
     repository.markInterruptedMessages();
     expect(repository.getChat().messages.at(-1)).toMatchObject({
       status: "stopped",
@@ -82,4 +101,3 @@ describe("ChatRepository", () => {
     });
   });
 });
-

@@ -20,7 +20,7 @@ source_plan: ../../plan/streaming_output/local_sse_chat_mvp.md
 - 前端使用 Vue 3、Vite、TypeScript 和 Tailwind CSS。
 - 后端使用 Fastify、TypeScript、Drizzle ORM 和 SQLite。
 - 工程使用 pnpm workspace，包含 `apps/web`、`apps/api` 和 `packages/shared`。
-- 后端以原生 `fetch` 调用 DeepSeek Chat Completions API，固定使用 `deepseek-v4-flash`，显式关闭 thinking，并请求流式响应。
+- 后端以原生 `fetch` 调用 DeepSeek Chat Completions API，固定使用 `deepseek-v4-flash` 并请求流式响应；MVP 初版显式关闭 thinking，后续已新增按次请求的推理强度切换。
 - 浏览器通过 `fetch POST + ReadableStream` 接收业务 SSE，实现单用户、单会话的流式对话。
 - 开发环境由 Vite 代理 `/api`；生产环境由 Fastify 同端口提供 API 和前端静态文件。
 - 服务默认绑定 `127.0.0.1`，所有组件均在本地运行。
@@ -82,14 +82,17 @@ SQLite 启用 WAL 和外键约束。消息状态包括 `streaming`、`completed`
 请求体：
 
 ```json
-{ "content": "你好" }
+{ "content": "你好", "reasoningLevel": "high" }
 ```
+
+`reasoningLevel` 可省略，默认是 `off`；当前可选值为 `off`、`low`、`high` 和 `max`。完整规则见 [DeepSeek 推理强度切换](../reasoning_effort_switch/deepseek_reasoning_effort_switch.md)。
 
 响应类型为 `text/event-stream`，业务事件包括：
 
-- `meta`：用户消息和 assistant 消息 ID。
+- `meta`：用户消息、assistant 消息 ID、模型和实际推理档位。
+- `phase`：推理阶段或最终回答阶段。
 - `delta`：本次新增文本。
-- `done`：结束原因和 token usage。
+- `done`：结束原因和 token usage，可包含 reasoning Token。
 - `error`：稳定错误码、用户可读信息和 `retryable` 标记。
 
 空白内容、超长内容、并发生成和模型未配置等情况会返回对应的稳定业务错误。浏览器断开或用户停止生成时，后端会取消上游请求，并保存已收到的部分回答。
@@ -116,6 +119,10 @@ SQLite 启用 WAL 和外键约束。消息状态包括 `streaming`、`completed`
 
 - [流式 Markdown 代码块自动滚动中断](../fixes/streaming_markdown_code_block_auto_scroll.md)：修复 Markdown 节流渲染、代码块布局增长和滚动状态判断之间的竞态，并经用户验收。
 
+## 后续功能
+
+- [DeepSeek 推理强度切换](../reasoning_effort_switch/deepseek_reasoning_effort_switch.md)：新增关闭、低、高、最大四档推理强度、阶段提示和档位持久化。
+
 ## 安全说明
 
 - `DEEPSEEK_API_KEY` 仅由后端从 `.env` 读取；`.env` 已被 Git 忽略。
@@ -125,7 +132,7 @@ SQLite 启用 WAL 和外键约束。消息状态包括 `streaming`、`completed`
 ## 已知限制
 
 - 当前只有单用户、单会话，不支持新建、重命名、删除、清空或失败重试 UI。
-- 不支持用户系统、模型切换、推理强度切换和语音输入。
+- 不支持用户系统、模型切换和语音输入。
 - 尚未接入 RAG、MCP、Web Search 和结构化输出。
 - 尚未实现虚拟列表、组件级懒加载、大规模历史分页、摘要或上下文裁剪。
 - 当前仅面向本机使用，没有面向公网部署的身份认证和安全边界。
