@@ -8,6 +8,7 @@ import type { ModelMessage } from "../db/repository.js";
 
 export type ProviderEvent =
   | { type: "phase"; phase: GenerationPhase }
+  | { type: "reasoning_delta"; text: string }
   | { type: "delta"; text: string }
   | {
       type: "done";

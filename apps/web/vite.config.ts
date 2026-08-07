@@ -6,6 +6,8 @@ import { defineConfig, loadEnv } from "vite";
 export default defineConfig(({ mode }) => {
   const workspaceRoot = fileURLToPath(new URL("../../", import.meta.url));
   const environment = loadEnv(mode, workspaceRoot, "");
+  const defaultApiTarget =
+    mode === "e2e" ? "http://127.0.0.1:3100" : "http://127.0.0.1:3000";
 
   return {
     envDir: workspaceRoot,
@@ -16,11 +18,10 @@ export default defineConfig(({ mode }) => {
       proxy: {
         "/api": {
           target:
-            environment.VITE_API_PROXY_TARGET ?? "http://127.0.0.1:3000",
+            environment.VITE_API_PROXY_TARGET ?? defaultApiTarget,
           changeOrigin: false,
         },
       },
     },
   };
 });
-

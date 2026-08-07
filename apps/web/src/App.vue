@@ -106,7 +106,10 @@ function submit(): void {
 watch(
   () =>
     messages.value
-      .map((message) => `${message.id}:${message.content}:${message.status}`)
+      .map(
+        (message) =>
+          `${message.id}:${message.reasoningContent ?? ""}:${message.content}:${message.status}`,
+      )
       .join("|"),
   async () => {
     await nextTick();
@@ -171,6 +174,11 @@ onBeforeUnmount(() => {
             v-for="message in messages"
             :key="message.id"
             :message="message"
+            :reasoning-active="
+              message.role === 'assistant' &&
+                message.status === 'streaming' &&
+                streamState === 'reasoning'
+            "
           />
         </div>
       </div>

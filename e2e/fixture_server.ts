@@ -9,6 +9,8 @@ import {
   type ProviderEvent,
 } from "../apps/api/src/provider/types.js";
 
+const E2E_API_PORT = 3100;
+
 function wait(milliseconds: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolvePromise, reject) => {
     const timer = setTimeout(resolvePromise, milliseconds);
@@ -39,7 +41,21 @@ class E2eProvider implements ChatProvider {
 
     if (options.reasoningLevel !== "off") {
       yield { type: "phase", phase: "reasoning" };
-      await wait(450, signal);
+      if (prompt.includes("长思考滚动")) {
+        for (let index = 1; index <= 48; index += 1) {
+          yield {
+            type: "reasoning_delta",
+            text: `分析步骤 ${index}：逐项检查问题中的条件与约束。\n\n`,
+          };
+          await wait(20, signal);
+        }
+        await wait(5_000, signal);
+      } else {
+        yield { type: "reasoning_delta", text: "我会先分析问题，" };
+        await wait(225, signal);
+        yield { type: "reasoning_delta", text: "再组织最终答案。" };
+        await wait(prompt.includes("慢思考") ? 5_000 : 225, signal);
+      }
     }
     yield { type: "phase", phase: "answer" };
 
@@ -94,7 +110,7 @@ class E2eProvider implements ChatProvider {
 
 const config = loadConfig();
 const app = await buildApp({
-  config: { ...config, port: 3000 },
+  config: { ...config, port: E2E_API_PORT },
   databasePath: ":memory:",
   migrationsFolder: resolve(findWorkspaceRoot(), "apps/api/drizzle"),
   provider: new E2eProvider(),
@@ -102,7 +118,7 @@ const app = await buildApp({
   serveFrontend: false,
 });
 
-await app.listen({ host: "127.0.0.1", port: 3000 });
+await app.listen({ host: "127.0.0.1", port: E2E_API_PORT });
 
 async function shutdown(): Promise<void> {
   await app.close();

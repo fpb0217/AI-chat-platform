@@ -25,8 +25,7 @@ describe("DeepSeekProvider", () => {
     const fetchImplementation = vi.fn<typeof fetch>(async (_input, _init) =>
       streamResponse([
         ': keep-alive\n\ndata: {"choices":[{"delta":{"reasoning_content":"先分析"},"finish_reason":null}]}\n',
-        '\ndata: {"choices":[{"delta":{"reasoning_content":"再判断"},"finish_reason":null}]}\n\n',
-        'data: {"choices":[{"delta":{"content":"你"},"finish_reason":null}]}\n\n',
+        '\ndata: {"choices":[{"delta":{"reasoning_content":"再判断","content":"你"},"finish_reason":null}]}\n\n',
         '\ndata: {"choices":[{"delta":{"content":"好"},"finish_reason":"stop"}],"usage":null}\n\n',
         'data: {"choices":[],"usage":{"prompt_tokens":4,"completion_tokens":9,"total_tokens":13,"completion_tokens_details":{"reasoning_tokens":7}}}\n\n',
         "data: [DONE]\n\n",
@@ -52,6 +51,8 @@ describe("DeepSeekProvider", () => {
 
     expect(events).toEqual([
       { type: "phase", phase: "reasoning" },
+      { type: "reasoning_delta", text: "先分析" },
+      { type: "reasoning_delta", text: "再判断" },
       { type: "phase", phase: "answer" },
       { type: "delta", text: "你" },
       { type: "delta", text: "好" },

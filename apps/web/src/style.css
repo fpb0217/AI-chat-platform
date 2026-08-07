@@ -339,6 +339,85 @@ button {
   text-transform: none;
 }
 
+.reasoning-panel {
+  margin: 0 0 14px;
+  overflow: hidden;
+  border: 1px solid #e5e0ef;
+  border-radius: 12px;
+  background: #f8f6fb;
+}
+
+.reasoning-toggle {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 0;
+  background: transparent;
+  padding: 10px 12px;
+  color: #70677e;
+  font: inherit;
+  cursor: pointer;
+}
+
+.reasoning-toggle:hover {
+  background: #f2eef8;
+  color: #554966;
+}
+
+.reasoning-toggle:focus-visible {
+  outline: 2px solid #8268d2;
+  outline-offset: -2px;
+}
+
+.reasoning-title {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 680;
+}
+
+.reasoning-title svg {
+  flex: none;
+}
+
+.reasoning-spinner {
+  animation: reasoning-spin 900ms linear infinite;
+}
+
+.reasoning-chevron {
+  flex: none;
+  transition: transform 160ms ease;
+}
+
+.reasoning-chevron.open {
+  transform: rotate(180deg);
+}
+
+.reasoning-body {
+  max-height: min(42vh, 360px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  border-top: 1px solid #e8e3f0;
+  padding: 11px 13px 13px;
+  scrollbar-color: #c5bdd4 transparent;
+}
+
+.reasoning-body .markdown-shell {
+  color: #625b6c;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.reasoning-body .markdown-body h1,
+.reasoning-body .markdown-body h2,
+.reasoning-body .markdown-body h3 {
+  color: #4e4658;
+}
+
 .user-bubble {
   width: fit-content;
   max-width: min(100%, 620px);
@@ -796,6 +875,12 @@ button {
   }
 }
 
+@keyframes reasoning-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 @keyframes message-in {
   from {
     opacity: 0;
@@ -870,6 +955,14 @@ button {
 
   .markdown-shell {
     font-size: 14px;
+  }
+
+  .reasoning-body {
+    max-height: min(36vh, 280px);
+  }
+
+  .reasoning-body .markdown-shell {
+    font-size: 12.5px;
   }
 
   .composer-region {

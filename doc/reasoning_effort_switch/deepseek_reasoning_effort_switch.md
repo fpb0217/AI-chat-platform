@@ -9,6 +9,8 @@ source_plan: ../../plan/reasoning_effort_switch/deepseek_reasoning_effort_switch
 
 # DeepSeek 推理强度切换
 
+> 后续演进：2026-08-07 已通过 [DeepSeek 思考过程流式展示与折叠](../reasoning_chain_panel/deepseek_reasoning_chain_panel.md) 实现原始 `reasoning_content` 的流式展示、折叠与本地持久化。本文件中“不展示或持久化原始推理文本”的描述仅代表本功能最初验收时的基线，当前行为以后续文档为准。
+
 ## 验收结论
 
 本功能已完成实现、自动化验证、真实 DeepSeek API 冒烟和用户本地测试，并于 2026-08-07 验收。用户确认推理强度切换功能没有发现问题。

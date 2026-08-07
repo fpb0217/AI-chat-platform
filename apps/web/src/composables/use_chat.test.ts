@@ -72,18 +72,18 @@ describe("useChat", () => {
             start(controller) {
               controller.enqueue(
                 encoder.encode(
-                  'event: meta\ndata: {"userMessageId":"u1","assistantMessageId":"a1","turnId":"t1","model":"deepseek-v4-flash","reasoningLevel":"high"}\n\nevent: phase\ndata: {"assistantMessageId":"a1","phase":"reasoning"}\n\n',
+                  'event: meta\ndata: {"userMessageId":"u1","assistantMessageId":"a1","turnId":"t1","model":"deepseek-v4-flash","reasoningLevel":"high"}\n\nevent: phase\ndata: {"assistantMessageId":"a1","phase":"reasoning","reasoningDurationMs":null}\n\nevent: reasoning_delta\ndata: {"assistantMessageId":"a1","text":"先分析问题。"}\n\n',
                 ),
               );
               window.setTimeout(() => {
                 controller.enqueue(
                   encoder.encode(
-                    'event: phase\ndata: {"assistantMessageId":"a1","phase":"answer"}\n\nevent: delta\ndata: {"assistantMessageId":"a1","text":"你好"}\n\nevent: delta\ndata: {"assistantMessageId":"a1","text":"，世界"}\n\n',
+                    'event: phase\ndata: {"assistantMessageId":"a1","phase":"answer","reasoningDurationMs":1250}\n\nevent: delta\ndata: {"assistantMessageId":"a1","text":"你好"}\n\nevent: delta\ndata: {"assistantMessageId":"a1","text":"，世界"}\n\n',
                   ),
                 );
                 controller.enqueue(
                   encoder.encode(
-                    'event: done\ndata: {"assistantMessageId":"a1","finishReason":"stop","usage":null}\n\n',
+                    'event: done\ndata: {"assistantMessageId":"a1","finishReason":"stop","usage":null,"reasoningDurationMs":1250}\n\n',
                   ),
                 );
                 controller.close();
@@ -101,6 +101,10 @@ describe("useChat", () => {
     const sending = chat.sendMessage("问候", "high");
     await flushPromises();
     expect(chat.streamState.value).toBe("reasoning");
+    expect(chat.messages.value[1]).toMatchObject({
+      reasoningContent: "先分析问题。",
+      reasoningDurationMs: null,
+    });
     await sending;
 
     expect(chat.streamState.value).toBe("idle");
@@ -112,6 +116,8 @@ describe("useChat", () => {
     expect(chat.messages.value[1]).toMatchObject({
       id: "a1",
       content: "你好，世界",
+      reasoningContent: "先分析问题。",
+      reasoningDurationMs: 1_250,
       status: "completed",
       model: "deepseek-v4-flash",
       reasoningLevel: "high",
@@ -151,7 +157,7 @@ describe("useChat", () => {
             start(controller) {
               controller.enqueue(
                 encoder.encode(
-                  'event: meta\ndata: {"userMessageId":"u2","assistantMessageId":"a2","turnId":"t2","model":"deepseek-v4-flash","reasoningLevel":"off"}\n\nevent: phase\ndata: {"assistantMessageId":"a2","phase":"answer"}\n\nevent: delta\ndata: {"assistantMessageId":"a2","text":"保留这些内容"}\n\n',
+                  'event: meta\ndata: {"userMessageId":"u2","assistantMessageId":"a2","turnId":"t2","model":"deepseek-v4-flash","reasoningLevel":"off"}\n\nevent: phase\ndata: {"assistantMessageId":"a2","phase":"answer","reasoningDurationMs":null}\n\nevent: delta\ndata: {"assistantMessageId":"a2","text":"保留这些内容"}\n\n',
                 ),
               );
               init?.signal?.addEventListener(
@@ -176,6 +182,47 @@ describe("useChat", () => {
     expect(chat.messages.value[1]).toMatchObject({
       id: "a2",
       content: "保留这些内容",
+      status: "stopped",
+    });
+    expect(chat.streamState.value).toBe("idle");
+    wrapper.unmount();
+  });
+
+  it("keeps partial reasoning when generation is stopped before the answer", async () => {
+    const encoder = new TextEncoder();
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL, init?: RequestInit) =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(
+                encoder.encode(
+                  'event: meta\ndata: {"userMessageId":"u3","assistantMessageId":"a3","turnId":"t3","model":"deepseek-v4-flash","reasoningLevel":"high"}\n\nevent: phase\ndata: {"assistantMessageId":"a3","phase":"reasoning","reasoningDurationMs":null}\n\nevent: reasoning_delta\ndata: {"assistantMessageId":"a3","text":"已经生成的部分思考"}\n\n',
+                ),
+              );
+              init?.signal?.addEventListener(
+                "abort",
+                () => controller.error(new DOMException("Aborted", "AbortError")),
+                { once: true },
+              );
+            },
+          }),
+          { status: 200, headers: { "Content-Type": "text/event-stream" } },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const { chat, wrapper } = mountChat();
+
+    const sending = chat.sendMessage("请深入分析");
+    await flushPromises();
+    expect(chat.streamState.value).toBe("reasoning");
+    chat.stopGeneration();
+    await sending;
+
+    expect(chat.messages.value[1]).toMatchObject({
+      id: "a3",
+      content: "",
+      reasoningContent: "已经生成的部分思考",
       status: "stopped",
     });
     expect(chat.streamState.value).toBe("idle");

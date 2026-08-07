@@ -5,6 +5,7 @@ import { renderMarkdown } from "../lib/markdown";
 const props = defineProps<{
   content: string;
   streaming: boolean;
+  cursorLabel?: string;
 }>();
 
 const rendered = ref("");
@@ -67,7 +68,10 @@ onBeforeUnmount(() => {
 <template>
   <div class="markdown-shell">
     <div class="markdown-body" @click="handleClick" v-html="rendered" />
-    <span v-if="streaming" class="typing-cursor" aria-label="正在生成" />
+    <span
+      v-if="streaming"
+      class="typing-cursor"
+      :aria-label="cursorLabel ?? '正在生成'"
+    />
   </div>
 </template>
-

@@ -15,7 +15,7 @@
     "typecheck": "pnpm --filter @ai-chat/shared build && pnpm -r typecheck && tsc -p tsconfig.e2e.json --noEmit",
     "test": "pnpm --filter @ai-chat/shared build && pnpm -r test",
     "test:e2e": "pnpm --filter @ai-chat/shared build && playwright test",
-    "dev:e2e": "concurrently --kill-others-on-fail --names api,web --prefix-colors cyan,magenta \"pnpm --filter @ai-chat/api exec tsx ../../e2e/fixture_server.ts\" \"pnpm --filter @ai-chat/web exec vite --host 127.0.0.1 --port 4173\"",
+    "dev:e2e": "concurrently --kill-others-on-fail --names api,web --prefix-colors cyan,magenta \"pnpm --filter @ai-chat/api exec tsx ../../e2e/fixture_server.ts\" \"pnpm --filter @ai-chat/web exec vite --mode e2e --host 127.0.0.1 --port 4173\"",
     "db:generate": "pnpm --filter @ai-chat/api db:generate",
     "db:migrate": "pnpm --filter @ai-chat/api db:migrate"
   },

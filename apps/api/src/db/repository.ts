@@ -26,6 +26,8 @@ export interface TurnMessages {
 
 export interface FinalizeAssistantInput {
   content: string;
+  reasoningContent: string | null;
+  reasoningDurationMs: number | null;
   status: Extract<MessageStatus, "completed" | "stopped" | "error">;
   finishReason: string | null;
   usage: TokenUsage | null;
@@ -49,6 +51,8 @@ function toChatMessage(row: MessageRow): ChatMessage {
     position: row.position,
     role: row.role,
     content: row.content,
+    reasoningContent: row.reasoningContent,
+    reasoningDurationMs: row.reasoningDurationMs,
     status: row.status,
     model: row.model,
     reasoningLevel: row.reasoningLevel,
@@ -150,6 +154,8 @@ export class ChatRepository {
         position: firstPosition,
         role: "user",
         content,
+        reasoningContent: null,
+        reasoningDurationMs: null,
         status: "completed",
         model: null,
         reasoningLevel: null,
@@ -169,6 +175,8 @@ export class ChatRepository {
         position: firstPosition + 1,
         role: "assistant",
         content: "",
+        reasoningContent: null,
+        reasoningDurationMs: null,
         status: "streaming",
         model,
         reasoningLevel,
@@ -203,6 +211,8 @@ export class ChatRepository {
         .update(messages)
         .set({
           content: input.content,
+          reasoningContent: input.reasoningContent,
+          reasoningDurationMs: input.reasoningDurationMs,
           status: input.status,
           finishReason: input.finishReason,
           promptTokens: input.usage?.promptTokens ?? null,

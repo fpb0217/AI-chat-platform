@@ -51,6 +51,8 @@ export interface ChatMessage {
   position: number;
   role: MessageRole;
   content: string;
+  reasoningContent: string | null;
+  reasoningDurationMs: number | null;
   status: MessageStatus;
   model: string | null;
   reasoningLevel: ReasoningLevel | null;
@@ -98,6 +100,12 @@ export interface StreamMetaData {
 export interface StreamPhaseData {
   assistantMessageId: string;
   phase: GenerationPhase;
+  reasoningDurationMs: number | null;
+}
+
+export interface StreamReasoningDeltaData {
+  assistantMessageId: string;
+  text: string;
 }
 
 export interface StreamDeltaData {
@@ -109,6 +117,7 @@ export interface StreamDoneData {
   assistantMessageId: string;
   finishReason: string | null;
   usage: TokenUsage | null;
+  reasoningDurationMs: number | null;
 }
 
 export interface StreamErrorData {
@@ -116,11 +125,13 @@ export interface StreamErrorData {
   code: StreamErrorCode;
   message: string;
   retryable: boolean;
+  reasoningDurationMs: number | null;
 }
 
 export type StreamEvent =
   | { event: "meta"; data: StreamMetaData }
   | { event: "phase"; data: StreamPhaseData }
+  | { event: "reasoning_delta"; data: StreamReasoningDeltaData }
   | { event: "delta"; data: StreamDeltaData }
   | { event: "done"; data: StreamDoneData }
   | { event: "error"; data: StreamErrorData };

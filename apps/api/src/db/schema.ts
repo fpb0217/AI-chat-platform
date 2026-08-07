@@ -25,6 +25,8 @@ export const messages = sqliteTable(
     position: integer("position").notNull(),
     role: text("role", { enum: ["user", "assistant"] }).notNull(),
     content: text("content").notNull().default(""),
+    reasoningContent: text("reasoning_content"),
+    reasoningDurationMs: integer("reasoning_duration_ms"),
     status: text("status", {
       enum: ["streaming", "completed", "stopped", "error"],
     }).notNull(),

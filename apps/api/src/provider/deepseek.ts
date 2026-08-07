@@ -1,6 +1,5 @@
 import {
   REASONING_LEVELS,
-  type GenerationPhase,
   type ReasoningLevel,
   type TokenUsage,
 } from "@ai-chat/shared";
@@ -188,7 +187,8 @@ export class DeepSeekProvider implements ChatProvider {
     const parser = new SseDataParser();
     let finishReason: string | null = null;
     let usage: TokenUsage | null = null;
-    let phase: GenerationPhase | null = null;
+    let reasoningStarted = false;
+    let answerStarted = false;
 
     const consumeData = (data: string): DeepSeekChunk | "done" => {
       if (data.trim() === "[DONE]") {
@@ -225,19 +225,20 @@ export class DeepSeekProvider implements ChatProvider {
             finishReason = choice.finish_reason;
           }
           const reasoningText = choice?.delta?.reasoning_content;
-          if (
-            typeof reasoningText === "string" &&
-            reasoningText.length > 0 &&
-            phase !== "reasoning"
-          ) {
-            phase = "reasoning";
-            yield { type: "phase", phase };
+          if (typeof reasoningText === "string" && reasoningText.length > 0) {
+            if (!reasoningStarted) {
+              reasoningStarted = true;
+              if (!answerStarted) {
+                yield { type: "phase", phase: "reasoning" };
+              }
+            }
+            yield { type: "reasoning_delta", text: reasoningText };
           }
           const text = choice?.delta?.content;
           if (typeof text === "string" && text.length > 0) {
-            if (phase !== "answer") {
-              phase = "answer";
-              yield { type: "phase", phase };
+            if (!answerStarted) {
+              answerStarted = true;
+              yield { type: "phase", phase: "answer" };
             }
             yield { type: "delta", text };
           }

@@ -3,9 +3,11 @@ import { computed } from "vue";
 import type { ChatMessage, ReasoningLevel } from "@ai-chat/shared";
 import { Bot, CircleAlert, CircleStop, UserRound } from "lucide-vue-next";
 import MarkdownContent from "./MarkdownContent.vue";
+import ReasoningPanel from "./ReasoningPanel.vue";
 
 const props = defineProps<{
   message: ChatMessage;
+  reasoningActive: boolean;
 }>();
 
 const REASONING_LABELS: Record<ReasoningLevel, string> = {
@@ -19,6 +21,12 @@ const reasoningLabel = computed(() =>
   props.message.reasoningLevel
     ? REASONING_LABELS[props.message.reasoningLevel]
     : null,
+);
+
+const showAnswer = computed(
+  () =>
+    props.message.content.length > 0 ||
+    (props.message.status === "streaming" && !props.reasoningActive),
 );
 </script>
 
@@ -50,11 +58,17 @@ const reasoningLabel = computed(() =>
       <div v-if="message.role === 'user'" class="user-bubble">
         {{ message.content }}
       </div>
-      <MarkdownContent
-        v-else
-        :content="message.content"
-        :streaming="message.status === 'streaming'"
-      />
+      <template v-else>
+        <ReasoningPanel
+          :message="message"
+          :active="reasoningActive"
+        />
+        <MarkdownContent
+          v-if="showAnswer"
+          :content="message.content"
+          :streaming="message.status === 'streaming' && !reasoningActive"
+        />
+      </template>
       <div
         v-if="message.role === 'assistant' && message.status === 'stopped'"
         class="message-status"

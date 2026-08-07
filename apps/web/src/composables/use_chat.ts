@@ -18,6 +18,7 @@ import {
   type StreamErrorData,
   type StreamMetaData,
   type StreamPhaseData,
+  type StreamReasoningDeltaData,
 } from "@ai-chat/shared";
 import { SseEventParser, type ParsedSseEvent } from "../lib/sse";
 import { TypewriterBuffer } from "../lib/typewriter";
@@ -69,6 +70,8 @@ function optimisticMessage(
     position,
     role,
     content,
+    reasoningContent: null,
+    reasoningDurationMs: null,
     status: role === "assistant" ? "streaming" : "completed",
     model: role === "assistant" ? "deepseek-v4-flash" : null,
     reasoningLevel: role === "assistant" ? reasoningLevel : null,
@@ -111,6 +114,12 @@ async function readApiError(response: Response): Promise<string> {
 
 function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === "AbortError";
+}
+
+function normalizeEmptyReasoning(message: ChatMessage): void {
+  if (message.reasoningContent === "") {
+    message.reasoningContent = null;
+  }
 }
 
 export function useChat(): UseChatResult {
@@ -199,8 +208,25 @@ export function useChat(): UseChatResult {
     if (parsedEvent.event === "phase") {
       const phase = data as StreamPhaseData;
       if (phase.assistantMessageId === assistant.id) {
+        if (phase.phase === "reasoning") {
+          assistant.reasoningContent ??= "";
+        } else {
+          normalizeEmptyReasoning(assistant);
+          if (typeof phase.reasoningDurationMs === "number") {
+            assistant.reasoningDurationMs = phase.reasoningDurationMs;
+          }
+        }
         streamState.value =
           phase.phase === "reasoning" ? "reasoning" : "streaming";
+      }
+      return "continue";
+    }
+    if (parsedEvent.event === "reasoning_delta") {
+      const delta = data as StreamReasoningDeltaData;
+      if (delta.assistantMessageId === assistant.id) {
+        assistant.reasoningContent =
+          (assistant.reasoningContent ?? "") + delta.text;
+        assistant.updatedAt = nowIso();
       }
       return "continue";
     }
@@ -216,8 +242,12 @@ export function useChat(): UseChatResult {
       streamState.value = "draining";
       await writer.finish(300);
       assistant.status = "completed";
+      normalizeEmptyReasoning(assistant);
       assistant.finishReason = done.finishReason;
       assistant.usage = done.usage;
+      if (typeof done.reasoningDurationMs === "number") {
+        assistant.reasoningDurationMs = done.reasoningDurationMs;
+      }
       assistant.updatedAt = nowIso();
       return "terminal";
     }
@@ -226,7 +256,11 @@ export function useChat(): UseChatResult {
       streamState.value = "draining";
       await writer.finish(300);
       assistant.status = "error";
+      normalizeEmptyReasoning(assistant);
       assistant.errorCode = streamError.code;
+      if (typeof streamError.reasoningDurationMs === "number") {
+        assistant.reasoningDurationMs = streamError.reasoningDurationMs;
+      }
       assistant.updatedAt = nowIso();
       errorMessage.value = streamError.message;
       return "terminal";
@@ -342,6 +376,7 @@ export function useChat(): UseChatResult {
       if (controller.signal.aborted || isAbortError(error)) {
         writer.flush();
         assistant.status = "stopped";
+        normalizeEmptyReasoning(assistant);
         assistant.updatedAt = nowIso();
       } else {
         writer.flush();
@@ -351,6 +386,7 @@ export function useChat(): UseChatResult {
           );
         } else {
           assistant.status = "error";
+          normalizeEmptyReasoning(assistant);
           assistant.errorCode = "UPSTREAM_STREAM_INTERRUPTED";
         }
         errorMessage.value =
@@ -386,6 +422,7 @@ export function useChat(): UseChatResult {
     activeWriter?.flush();
     if (activeAssistant) {
       activeAssistant.status = "stopped";
+      normalizeEmptyReasoning(activeAssistant);
       activeAssistant.updatedAt = nowIso();
     }
   }

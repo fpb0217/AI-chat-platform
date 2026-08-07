@@ -13,6 +13,7 @@ test.describe.serial("local streaming chat", () => {
     await expect(assistant).toContainText("这是一个");
     await expect(assistant).not.toContainText("逐字出现的流式回答。");
     await expect(assistant).toContainText("这是一个逐字出现的流式回答。");
+    await expect(assistant.locator(".reasoning-panel")).toHaveCount(0);
 
     await page.reload();
     await expect(page.getByText("请演示流式输出", { exact: true })).toBeVisible();
@@ -38,13 +39,107 @@ test.describe.serial("local streaming chat", () => {
     await expect(page.getByText("正在深度思考", { exact: true })).toBeVisible();
 
     const assistant = page.locator(".message-row-assistant").last();
+    const reasoningToggle = assistant.getByRole("button", {
+      name: /正在思考/u,
+    });
+    await expect(reasoningToggle).toHaveAttribute("aria-expanded", "true");
+    await expect(assistant.getByRole("region")).toContainText("我会先分析问题");
     await expect(assistant).toContainText("最大推理");
     await expect(assistant).toContainText("这是一个逐字出现的流式回答。");
+    const completedToggle = assistant.getByRole("button", {
+      name: /已思考/u,
+    });
+    await expect(completedToggle).toHaveAttribute("aria-expanded", "false");
+    await completedToggle.click();
+    await expect(assistant.getByRole("region")).toContainText(
+      "我会先分析问题，再组织最终答案。",
+    );
 
     await page.reload();
     const restored = page.locator(".message-row-assistant").last();
     await expect(restored).toContainText("最大推理");
     await expect(restored).toContainText("这是一个逐字出现的流式回答。");
+    const restoredToggle = restored.getByRole("button", { name: /已思考/u });
+    await expect(restoredToggle).toHaveAttribute("aria-expanded", "false");
+    await restoredToggle.click();
+    await expect(restored.getByRole("region")).toContainText(
+      "我会先分析问题，再组织最终答案。",
+    );
+  });
+
+  test("stops during reasoning and restores the partial thought", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await page.getByRole("button", { name: /推理强度：关闭/u }).click();
+    await page.getByRole("option", { name: /高/u }).click();
+    await page.getByLabel("输入消息").fill("请给我一个慢思考");
+    await page.getByRole("button", { name: "发送消息" }).click();
+
+    const assistant = page.locator(".message-row-assistant").last();
+    await expect(assistant.getByRole("region")).toContainText(
+      "我会先分析问题，再组织最终答案。",
+    );
+    await page.getByRole("button", { name: "停止生成" }).click();
+    await expect(
+      assistant.getByRole("button", { name: "思考已停止" }),
+    ).toBeVisible();
+    await expect(assistant).toContainText("已停止生成");
+
+    await page.waitForTimeout(200);
+    await page.reload();
+    const restored = page.locator(".message-row-assistant").last();
+    const restoredToggle = restored.getByRole("button", {
+      name: "思考已停止",
+    });
+    await expect(restoredToggle).toHaveAttribute("aria-expanded", "false");
+    await restoredToggle.click();
+    await expect(restored.getByRole("region")).toContainText(
+      "我会先分析问题，再组织最终答案。",
+    );
+  });
+
+  test("keeps an overflowing reasoning panel pinned to its latest content", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 900, height: 700 });
+    await page.goto("/");
+    await page.addStyleTag({
+      content: ".reasoning-body { overflow-anchor: none !important; }",
+    });
+    await page.getByRole("button", { name: /推理强度：关闭/u }).click();
+    await page.getByRole("option", { name: /高/u }).click();
+    await page.getByLabel("输入消息").fill("请测试长思考滚动");
+    await page.getByRole("button", { name: "发送消息" }).click();
+
+    const assistant = page.locator(".message-row-assistant").last();
+    const reasoningBody = assistant.locator(".reasoning-body");
+    await expect(reasoningBody).toContainText("分析步骤 48");
+    await expect
+      .poll(() =>
+        reasoningBody.evaluate((element) => ({
+          overflowing: element.scrollHeight > element.clientHeight,
+          bottomDistance:
+            element.scrollHeight - element.scrollTop - element.clientHeight,
+        })),
+      )
+      .toMatchObject({
+        overflowing: true,
+        bottomDistance: expect.any(Number),
+      });
+    await expect
+      .poll(
+        () =>
+          reasoningBody.evaluate((element) =>
+            Math.round(
+              element.scrollHeight - element.scrollTop - element.clientHeight,
+            ),
+          ),
+        { timeout: 1_500 },
+      )
+      .toBeLessThanOrEqual(1);
+
+    await page.getByRole("button", { name: "停止生成" }).click();
   });
 
   test("stops generation and persists the partial answer", async ({ page }) => {

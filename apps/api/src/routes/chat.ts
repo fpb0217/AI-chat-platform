@@ -9,6 +9,7 @@ import {
   type StreamErrorData,
   type StreamMetaData,
   type StreamPhaseData,
+  type StreamReasoningDeltaData,
   type TokenUsage,
 } from "@ai-chat/shared";
 import type { FastifyInstance } from "fastify";
@@ -164,8 +165,22 @@ export function registerChatRoutes(
     let timedOut = false;
     let finalized = false;
     let assistantContent = "";
+    let assistantReasoningContent = "";
+    let reasoningStartedAt: number | null = null;
+    let reasoningDurationMs: number | null = null;
     let finishReason: string | null = null;
     let usage: TokenUsage | null = null;
+
+    const startReasoningTimer = () => {
+      reasoningStartedAt ??= Date.now();
+    };
+    const finishReasoningTimer = () => {
+      if (reasoningStartedAt !== null && reasoningDurationMs === null) {
+        reasoningDurationMs = Math.max(0, Date.now() - reasoningStartedAt);
+      }
+    };
+    const persistedReasoningContent = () =>
+      assistantReasoningContent.length > 0 ? assistantReasoningContent : null;
 
     const disconnect = () => {
       if (!finalized && !response.writableEnded) {
@@ -201,11 +216,30 @@ export function registerChatRoutes(
         },
       )) {
         if (providerEvent.type === "phase") {
+          if (providerEvent.phase === "reasoning") {
+            startReasoningTimer();
+          } else {
+            finishReasoningTimer();
+          }
           const phase: StreamPhaseData = {
             assistantMessageId: turn.assistantMessage.id,
             phase: providerEvent.phase,
+            reasoningDurationMs:
+              providerEvent.phase === "answer" ? reasoningDurationMs : null,
           };
           if (!writeSse(response, "phase", phase)) {
+            disconnect();
+          }
+          continue;
+        }
+        if (providerEvent.type === "reasoning_delta") {
+          startReasoningTimer();
+          assistantReasoningContent += providerEvent.text;
+          const reasoningDelta: StreamReasoningDeltaData = {
+            assistantMessageId: turn.assistantMessage.id,
+            text: providerEvent.text,
+          };
+          if (!writeSse(response, "reasoning_delta", reasoningDelta)) {
             disconnect();
           }
           continue;
@@ -224,11 +258,15 @@ export function registerChatRoutes(
 
         finishReason = providerEvent.finishReason;
         usage = providerEvent.usage;
+        finishReasoningTimer();
       }
 
+      finishReasoningTimer();
       if (clientDisconnected) {
         options.repository.finalizeAssistant(turn.assistantMessage.id, {
           content: assistantContent,
+          reasoningContent: persistedReasoningContent(),
+          reasoningDurationMs,
           status: "stopped",
           finishReason,
           usage,
@@ -237,6 +275,8 @@ export function registerChatRoutes(
       } else {
         options.repository.finalizeAssistant(turn.assistantMessage.id, {
           content: assistantContent,
+          reasoningContent: persistedReasoningContent(),
+          reasoningDurationMs,
           status: "completed",
           finishReason,
           usage,
@@ -246,13 +286,17 @@ export function registerChatRoutes(
           assistantMessageId: turn.assistantMessage.id,
           finishReason,
           usage,
+          reasoningDurationMs,
         };
         writeSse(response, "done", done);
       }
     } catch (error) {
+      finishReasoningTimer();
       if (clientDisconnected) {
         options.repository.finalizeAssistant(turn.assistantMessage.id, {
           content: assistantContent,
+          reasoningContent: persistedReasoningContent(),
+          reasoningDurationMs,
           status: "stopped",
           finishReason,
           usage,
@@ -262,6 +306,8 @@ export function registerChatRoutes(
         const mapped = safeError(error, timedOut);
         options.repository.finalizeAssistant(turn.assistantMessage.id, {
           content: assistantContent,
+          reasoningContent: persistedReasoningContent(),
+          reasoningDurationMs,
           status: "error",
           finishReason,
           usage,
@@ -270,6 +316,7 @@ export function registerChatRoutes(
         const streamError: StreamErrorData = {
           assistantMessageId: turn.assistantMessage.id,
           ...mapped,
+          reasoningDurationMs,
         };
         writeSse(response, "error", streamError);
         request.log.warn(

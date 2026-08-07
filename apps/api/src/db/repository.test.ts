@@ -29,6 +29,8 @@ describe("ChatRepository", () => {
 
     repository.finalizeAssistant(turn.assistantMessage.id, {
       content: "第一答",
+      reasoningContent: "先分析，再得出第一答。",
+      reasoningDurationMs: 1_250,
       status: "completed",
       finishReason: "stop",
       usage: {
@@ -44,6 +46,8 @@ describe("ChatRepository", () => {
     expect(chat.messages.map((message) => message.position)).toEqual([0, 1]);
     expect(chat.messages[1]).toMatchObject({
       content: "第一答",
+      reasoningContent: "先分析，再得出第一答。",
+      reasoningDurationMs: 1_250,
       status: "completed",
       reasoningLevel: "high",
       finishReason: "stop",
@@ -68,6 +72,8 @@ describe("ChatRepository", () => {
     );
     repository.finalizeAssistant(failed.assistantMessage.id, {
       content: "",
+      reasoningContent: null,
+      reasoningDurationMs: null,
       status: "error",
       finishReason: null,
       usage: null,
@@ -80,10 +86,19 @@ describe("ChatRepository", () => {
     );
     repository.finalizeAssistant(stopped.assistantMessage.id, {
       content: "部分回答",
+      reasoningContent: "部分思考",
+      reasoningDurationMs: 800,
       status: "stopped",
       finishReason: null,
       usage: null,
       errorCode: null,
+    });
+
+    expect(repository.getChat().messages.at(-1)).toMatchObject({
+      content: "部分回答",
+      reasoningContent: "部分思考",
+      reasoningDurationMs: 800,
+      status: "stopped",
     });
 
     expect(repository.getModelHistory()).toEqual([

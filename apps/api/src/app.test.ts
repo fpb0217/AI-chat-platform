@@ -103,6 +103,9 @@ describe("chat API", () => {
   it("streams named SSE events and persists the completed assistant message", async () => {
     const provider = new FakeProvider(async function* () {
       yield { type: "phase", phase: "reasoning" };
+      yield { type: "reasoning_delta", text: "先分析，" };
+      await new Promise((resolvePromise) => setTimeout(resolvePromise, 5));
+      yield { type: "reasoning_delta", text: "再组织答案。" };
       yield { type: "phase", phase: "answer" };
       yield { type: "delta", text: "你好，" };
       yield { type: "delta", text: "世界" };
@@ -131,6 +134,8 @@ describe("chat API", () => {
     expect(events.map((event) => event.event)).toEqual([
       "meta",
       "phase",
+      "reasoning_delta",
+      "reasoning_delta",
       "phase",
       "delta",
       "delta",
@@ -141,7 +146,15 @@ describe("chat API", () => {
       reasoningLevel: "high",
     });
     expect(events[1]?.data).toMatchObject({ phase: "reasoning" });
-    expect(events[3]?.data).toMatchObject({ text: "你好，" });
+    expect(events[2]?.data).toMatchObject({ text: "先分析，" });
+    expect(events[4]?.data).toMatchObject({
+      phase: "answer",
+      reasoningDurationMs: expect.any(Number),
+    });
+    expect(events[5]?.data).toMatchObject({ text: "你好，" });
+    expect(events.at(-1)?.data).toMatchObject({
+      reasoningDurationMs: expect.any(Number),
+    });
 
     const chat = (await (
       await fetch(`${url}/api/chat`)
@@ -149,6 +162,8 @@ describe("chat API", () => {
     expect(chat.messages.at(-1)).toMatchObject({
       role: "assistant",
       content: "你好，世界",
+      reasoningContent: "先分析，再组织答案。",
+      reasoningDurationMs: expect.any(Number),
       status: "completed",
       reasoningLevel: "high",
       usage: {
@@ -221,6 +236,8 @@ describe("chat API", () => {
 
   it("normalizes provider errors and persists the failed assistant", async () => {
     const provider = new FakeProvider(async function* () {
+      yield { type: "phase", phase: "reasoning" };
+      yield { type: "reasoning_delta", text: "部分思考" };
       yield { type: "delta", text: "部分" };
       throw new ProviderError("RATE_LIMITED", "请求频率过高", true, 429);
     });
@@ -235,13 +252,19 @@ describe("chat API", () => {
     const events = parseEvents(await response.text());
     expect(events.at(-1)).toMatchObject({
       event: "error",
-      data: { code: "RATE_LIMITED", retryable: true },
+      data: {
+        code: "RATE_LIMITED",
+        retryable: true,
+        reasoningDurationMs: expect.any(Number),
+      },
     });
     const chat = (await (
       await fetch(`${url}/api/chat`)
     ).json()) as ChatResponse;
     expect(chat.messages.at(-1)).toMatchObject({
       content: "部分",
+      reasoningContent: "部分思考",
+      reasoningDurationMs: expect.any(Number),
       status: "error",
       errorCode: "RATE_LIMITED",
     });
@@ -293,6 +316,62 @@ describe("chat API", () => {
     expect(chat.messages.at(-1)).toMatchObject({
       status: "stopped",
       content: "已经生成的部分",
+    });
+  });
+
+  it("persists partial reasoning when the client disconnects before the answer", async () => {
+    const provider = new FakeProvider(async function* (_messages, options) {
+      yield { type: "phase", phase: "reasoning" };
+      yield { type: "reasoning_delta", text: "已经生成的部分思考" };
+      await new Promise<void>((_resolve, reject) => {
+        const abort = () =>
+          reject(options.signal.reason ?? new Error("aborted"));
+        if (options.signal.aborted) {
+          abort();
+        } else {
+          options.signal.addEventListener("abort", abort, { once: true });
+        }
+      });
+    });
+    const { app, url } = await createTestServer(provider);
+    openApps.push(app);
+    const controller = new AbortController();
+
+    const response = await fetch(`${url}/api/chat/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: "慢思考", reasoningLevel: "high" }),
+      signal: controller.signal,
+    });
+    const reader = response.body?.getReader();
+    expect(reader).toBeDefined();
+    const decoder = new TextDecoder();
+    let received = "";
+    while (!received.includes("event: reasoning_delta")) {
+      const chunk = await reader?.read();
+      if (!chunk || chunk.done) {
+        break;
+      }
+      received += decoder.decode(chunk.value, { stream: true });
+    }
+    expect(received).toContain("已经生成的部分思考");
+
+    controller.abort();
+    await waitFor(async () => {
+      const chat = (await (
+        await fetch(`${url}/api/chat`)
+      ).json()) as ChatResponse;
+      return chat.messages.at(-1)?.status === "stopped";
+    });
+
+    const chat = (await (
+      await fetch(`${url}/api/chat`)
+    ).json()) as ChatResponse;
+    expect(chat.messages.at(-1)).toMatchObject({
+      status: "stopped",
+      content: "",
+      reasoningContent: "已经生成的部分思考",
+      reasoningDurationMs: expect.any(Number),
     });
   });
 });

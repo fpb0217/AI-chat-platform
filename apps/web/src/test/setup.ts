@@ -26,3 +26,14 @@ vi.stubGlobal(
 );
 vi.stubGlobal("cancelAnimationFrame", (id: number) => window.clearTimeout(id));
 
+class ResizeObserverStub {
+  public constructor(_callback: ResizeObserverCallback) {}
+
+  public observe(): void {}
+
+  public unobserve(): void {}
+
+  public disconnect(): void {}
+}
+
+vi.stubGlobal("ResizeObserver", ResizeObserverStub);
