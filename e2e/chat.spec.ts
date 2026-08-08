@@ -142,6 +142,42 @@ test.describe.serial("local streaming chat", () => {
     await page.getByRole("button", { name: "停止生成" }).click();
   });
 
+  test("keeps following when reasoning collapses before a long answer", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1404, height: 451 });
+    await page.goto("/");
+    await page.getByRole("button", { name: /推理强度：关闭/u }).click();
+    await page.getByRole("option", { name: /高/u }).click();
+    await page.getByLabel("输入消息").fill("请测试代码块滚动");
+    await page.getByRole("button", { name: "发送消息" }).click();
+
+    const assistant = page.locator(".message-row-assistant").last();
+    const reasoningToggle = assistant.getByRole("button", {
+      name: /正在思考/u,
+    });
+    await expect(assistant.locator(".reasoning-body")).toContainText(
+      "我会先分析问题，再组织最终答案。",
+    );
+    await expect(reasoningToggle).toHaveAttribute("aria-expanded", "true");
+
+    await expect(assistant).toContainText("代码块生成完毕。", {
+      timeout: 10_000,
+    });
+    await expect(
+      assistant.getByRole("button", { name: /已思考/u }),
+    ).toHaveAttribute("aria-expanded", "false");
+    await expect
+      .poll(() =>
+        page.locator(".conversation-scroll").evaluate((element) =>
+          Math.round(
+            element.scrollHeight - element.scrollTop - element.clientHeight,
+          ),
+        ),
+      )
+      .toBeLessThanOrEqual(1);
+  });
+
   test("stops generation and persists the partial answer", async ({ page }) => {
     await page.goto("/");
     await page.getByLabel("输入消息").fill("请给我一个慢回答");

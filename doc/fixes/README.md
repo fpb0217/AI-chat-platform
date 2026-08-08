@@ -9,3 +9,4 @@
 | 问题 | 文档 | 验收日期 |
 | --- | --- | --- |
 | 流式 Markdown 代码块导致自动滚动中断 | [流式 Markdown 代码块自动滚动中断](streaming_markdown_code_block_auto_scroll.md) | 2026-08-07 |
+| 思考面板折叠后最终回答自动滚动中断 | [思考面板折叠后最终回答自动滚动中断](reasoning_panel_collapse_auto_scroll.md) | 2026-08-08 |

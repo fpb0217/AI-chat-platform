@@ -40,6 +40,7 @@ const scrollContent = ref<HTMLElement | null>(null);
 const followOutput = ref(true);
 const bottomThreshold = 96;
 let previousScrollTop = 0;
+let previousMaxScrollTop = 0;
 let contentResizeObserver: ResizeObserver | null = null;
 const statusText = computed(() => {
   if (streamState.value === "connecting") {
@@ -69,6 +70,10 @@ function scrollToBottom(behavior: ScrollBehavior = "smooth"): void {
     element.scrollTo({ top: element.scrollHeight, behavior });
   }
   previousScrollTop = element.scrollTop;
+  previousMaxScrollTop = Math.max(
+    0,
+    element.scrollHeight - element.clientHeight,
+  );
 }
 
 function handleScroll(): void {
@@ -76,15 +81,30 @@ function handleScroll(): void {
   if (!element) {
     return;
   }
-  const distance = element.scrollHeight - element.scrollTop - element.clientHeight;
   const currentScrollTop = element.scrollTop;
+  const currentMaxScrollTop = Math.max(
+    0,
+    element.scrollHeight - element.clientHeight,
+  );
+  const distance = currentMaxScrollTop - currentScrollTop;
+  const previousDistance = Math.max(
+    0,
+    previousMaxScrollTop - previousScrollTop,
+  );
+  const movedUp = currentScrollTop < previousScrollTop;
+  // Collapsing the reasoning panel can clamp scrollTop upward without moving
+  // the viewport away from the bottom; that layout shift is not user intent.
+  const movedWithShrinkingContent =
+    currentMaxScrollTop < previousMaxScrollTop &&
+    distance <= previousDistance + 1;
 
-  if (currentScrollTop < previousScrollTop) {
+  if (movedUp && !movedWithShrinkingContent) {
     followOutput.value = false;
   } else if (distance < bottomThreshold) {
     followOutput.value = true;
   }
   previousScrollTop = currentScrollTop;
+  previousMaxScrollTop = currentMaxScrollTop;
 }
 
 function handleContentResize(): void {

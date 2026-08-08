@@ -4,6 +4,7 @@ feature: reasoning_chain_panel
 status: accepted
 implemented_at: 2026-08-07
 accepted_at: 2026-08-07
+updated_at: 2026-08-08
 source_plan: ../../plan/reasoning_chain_panel/deepseek_reasoning_chain_panel.md
 ---
 
@@ -11,7 +12,7 @@ source_plan: ../../plan/reasoning_chain_panel/deepseek_reasoning_chain_panel.md
 
 ## 验收结论
 
-本功能已完成实现、自动化验证、长内容滚动体验修复和用户本地测试，并于 2026-08-07 验收。用户确认思考过程的实时展示、自动折叠、历史恢复及长内容自动跟随符合预期。
+本功能已完成实现、自动化验证、长内容滚动体验修复和用户本地测试，并于 2026-08-07 验收。2026-08-08 又修复并验收了思考面板自动折叠后最终回答停止跟随的问题；用户确认思考过程的实时展示、自动折叠、历史恢复及两个阶段的长内容自动跟随均符合预期。
 
 源计划：[DeepSeek 思考过程流式展示与折叠](../../plan/reasoning_chain_panel/deepseek_reasoning_chain_panel.md)
 
@@ -28,6 +29,7 @@ source_plan: ../../plan/reasoning_chain_panel/deepseek_reasoning_chain_panel.md
 - 刷新页面后，从 SQLite 恢复思考文本、耗时、回答状态和推理档位。
 - 非思考模式、旧消息和上游未返回非空思考文本的消息不显示空面板。
 - 超长思考过程出现内部滚动条后会自动跟随最新内容；用户主动上滚时暂停，重新回到底部后恢复。
+- 思考面板自动折叠不会被主对话误判为用户上滚，最终回答会从首个片段持续跟随到底部。
 - 思考内容沿用现有 Markdown 渲染与 DOMPurify 清洗链路。
 
 产品文案使用“思考过程”，不把模型生成的中间文本描述为完整、可验证或真实的推理依据。
@@ -148,6 +150,7 @@ Drizzle 迁移 `0002_sad_microchip.sql` 为 `messages` 增加：
 - `ResizeObserver` 监听实际 Markdown 内容高度，用户仍位于底部时显式更新内部 `scrollTop`。
 - 用户向上滚动后停止跟随，距底部 24px 以内时重新启用，避免抢走阅读位置。
 - 浏览器隐式滚动锚定不是正确性的前提；关闭该能力的 Playwright 回归仍能保持贴底。
+- 主对话区域同时记录 `scrollTop`、最大滚动位置和底部距离。answer 阶段折叠思考面板造成内容收缩时，只要底部距离没有增加，就把浏览器向上钳制滚动位置视为布局调整并继续跟随；用户上滚导致底部距离增加时仍立即暂停。
 
 ## 代码结构
 
@@ -160,6 +163,7 @@ Drizzle 迁移 `0002_sad_microchip.sql` 为 `messages` 增加：
 - `apps/web/src/composables/use_chat.ts`：实时消息状态及两类增量处理。
 - `apps/web/src/components/ReasoningPanel.vue`：折叠面板、Markdown 展示和内部滚动跟随。
 - `apps/web/src/components/ChatMessage.vue`：在最终回答前装配思考面板。
+- `apps/web/src/App.vue`：主对话自动滚动、内容尺寸观察，以及布局收缩与用户上滚的区分。
 - `e2e/fixture_server.ts`、`e2e/chat.spec.ts`：思考流、停止、刷新和长内容滚动回归。
 
 ## 验证结果
@@ -167,12 +171,17 @@ Drizzle 迁移 `0002_sad_microchip.sql` 为 `messages` 增加：
 - ESLint：通过，无错误或警告。
 - TypeScript：shared、API、Web 和 E2E 全部通过。
 - Vitest：shared 8 项、API 20 项、Web 18 项，共 46 项通过。
-- Playwright：9 项通过，覆盖非思考、思考展开/折叠、刷新恢复、思考阶段停止、长思考内部滚动、答案阶段停止、错误、主页面滚动和移动端布局。
+- Playwright：10 项通过，覆盖非思考、思考展开/折叠、刷新恢复、思考阶段停止、长思考内部滚动、思考折叠后的最终回答跟随、答案阶段停止、错误、主页面滚动和移动端布局。
 - 长内容滚动缺陷修复前，持续生成时内部视口距离底部 `1241px`；修复后，在禁用浏览器隐式滚动锚定的测试中保持不超过 `1px`。
+- 思考折叠缺陷修复前，新增场景重复 10 次全部失败，主视口距离底部约 1725–1726px；修复后重复 10 次全部通过并保持不超过 `1px`。
 - Drizzle 迁移生成与内存数据库 Repository 测试：通过。
 - shared、Vue 前端和 Fastify API 生产构建：通过。
 - 内部自动化未额外调用真实 DeepSeek API 或消耗账户额度。
-- 用户完成本地测试并确认功能验收。
+- 用户完成本地测试，并分别确认原功能及 2026-08-08 的阶段切换滚动修复验收。
+
+## 相关修复
+
+- [思考面板折叠后最终回答自动滚动中断](../fixes/reasoning_panel_collapse_auto_scroll.md)：记录阶段切换时布局收缩被误判为用户上滚的根因、修复和回归数据。
 
 ## 安全与隐私
 
