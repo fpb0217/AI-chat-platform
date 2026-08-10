@@ -30,6 +30,8 @@ source_plan: ../../plan/theme_switch/theme_switch.md
 
 - 2026-08-10：修复从深色切回浅色后，会话操作菜单仍保留深色表面的样式。浅色主题下的 `--color-surface-menu` 和悬停色现分别使用白色与浅色表面色；深色主题继续保留独立的深色覆盖值。
 - `e2e/chat.spec.ts` 新增回归用例：完成深色到浅色切换后，验证会话菜单和重命名模态框均使用浅色表面。
+- 2026-08-10：将有填充的业务按钮收敛为 `button-primary`、`button-secondary` 和 `button-subtle` 三个语义角色。角色颜色只从主题基础变量派生，不再为发送、停止、保存或取消等组件维护独立的主题色，因此浅色与深色会随同一套基础调色板切换。
+- `e2e/chat.spec.ts` 的浅色回归用例现会审计菜单和重命名模态框状态下的全部可见按钮；任何深色实体按钮背景或按钮背景图都会导致测试失败。
 
 ## 使用方式
 
@@ -70,9 +72,9 @@ source_plan: ../../plan/theme_switch/theme_switch.md
 - `apps/web/src/composables/use_theme.ts`：主题类型、合法值校验、读取、DOM 同步、切换和持久化。
 - `apps/web/src/components/ThemeToggle.vue`：可访问的顶栏双向切换按钮。
 - `apps/web/src/App.vue`：初始化主题状态并接入切换控件。
-- `apps/web/src/style.css`：浅色语义变量、深色变量覆盖和响应式布局。
+- `apps/web/src/style.css`：浅色语义变量、深色变量覆盖、按钮语义角色和响应式布局。
 - `apps/web/src/composables/use_theme.test.ts`、`ThemeToggle.test.ts`：状态容错、DOM 同步和组件行为测试。
-- `e2e/chat.spec.ts`：键盘切换、刷新恢复、非法值回退、深色切回浅色后的浮层配色和移动端布局回归。
+- `e2e/chat.spec.ts`：键盘切换、刷新恢复、非法值回退、深色切回浅色后的浮层及全部可见按钮配色和移动端布局回归。
 
 ## 验证结果
 
@@ -83,6 +85,7 @@ source_plan: ../../plan/theme_switch/theme_switch.md
 - 生产构建：shared、Vue 前端和 Fastify API 全部通过。
 - `git diff --check`：通过。
 - 后续菜单配色修复：`pnpm lint`、`pnpm typecheck`、Web 生产构建及对应 Playwright 回归用例均通过。
+- 后续按钮配色修复：`pnpm lint`、Web 类型检查、Web 生产构建和完整 16 项 Playwright 回归均通过。
 
 ## 安全与隐私
 

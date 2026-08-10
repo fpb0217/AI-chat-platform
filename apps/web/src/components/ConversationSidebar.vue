@@ -127,7 +127,7 @@ onBeforeUnmount(() => {
     </div>
 
     <button
-      class="sidebar-new-button"
+      class="sidebar-new-button button-primary"
       type="button"
       :disabled="disabled"
       :title="disabled ? '请先停止当前回答' : '新对话'"

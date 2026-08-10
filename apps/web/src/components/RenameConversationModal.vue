@@ -117,10 +117,10 @@ function handleKeydown(event: KeyboardEvent): void {
           {{ localError }}
         </p>
         <div class="rename-modal-actions">
-          <button type="button" class="rename-cancel" :disabled="saving" @click="emit('close')">
+          <button type="button" class="button-secondary" :disabled="saving" @click="emit('close')">
             取消
           </button>
-          <button type="button" class="rename-save" :disabled="saving" @click="submit">
+          <button type="button" class="button-primary" :disabled="saving" @click="submit">
             {{ saving ? "保存中…" : "保存" }}
           </button>
         </div>

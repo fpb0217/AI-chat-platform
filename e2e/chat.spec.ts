@@ -1,4 +1,89 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
+
+const MIN_LIGHT_BUTTON_LUMINANCE = 0.45;
+
+interface VisibleButtonSurface {
+  backgroundColor: string;
+  backgroundImage: string;
+  className: string;
+  label: string;
+}
+
+function relativeLuminance(red: number, green: number, blue: number): number {
+  const toLinear = (channel: number) => {
+    const normalized = channel / 255;
+    return normalized <= 0.04045
+      ? normalized / 12.92
+      : ((normalized + 0.055) / 1.055) ** 2.4;
+  };
+
+  return (
+    0.2126 * toLinear(red) +
+    0.7152 * toLinear(green) +
+    0.0722 * toLinear(blue)
+  );
+}
+
+function buttonBackgroundLuminance(backgroundColor: string): number | null {
+  const match = backgroundColor.match(
+    /^rgba?\((\d+(?:\.\d+)?),\s*(\d+(?:\.\d+)?),\s*(\d+(?:\.\d+)?)(?:,\s*(\d+(?:\.\d+)?))?\)$/,
+  );
+  if (!match) {
+    return null;
+  }
+
+  const [, red, green, blue, alpha = "1"] = match;
+  if (Number(alpha) === 0) {
+    return null;
+  }
+
+  return relativeLuminance(
+    Number(red),
+    Number(green),
+    Number(blue),
+  );
+}
+
+async function expectVisibleButtonsToUseLightSurfaces(page: Page): Promise<void> {
+  const buttonSurfaces: VisibleButtonSurface[] = await page
+    .locator("button")
+    .evaluateAll((buttons) =>
+      buttons
+        .filter((button) => {
+          const style = window.getComputedStyle(button);
+          const bounds = button.getBoundingClientRect();
+          return (
+            style.display !== "none" &&
+            style.visibility !== "hidden" &&
+            bounds.width > 0 &&
+            bounds.height > 0
+          );
+        })
+        .map((button) => {
+          const style = window.getComputedStyle(button);
+          return {
+            backgroundColor: style.backgroundColor,
+            backgroundImage: style.backgroundImage,
+            className: button.className,
+            label:
+              button.getAttribute("aria-label") ??
+              button.textContent?.replace(/\s+/g, " ").trim() ??
+              "",
+          };
+        }),
+    );
+
+  const unsafeButtons = buttonSurfaces.filter((button) => {
+    if (button.backgroundImage !== "none") {
+      return true;
+    }
+
+    const luminance = buttonBackgroundLuminance(button.backgroundColor);
+    return luminance !== null && luminance < MIN_LIGHT_BUTTON_LUMINANCE;
+  });
+
+  expect(unsafeButtons).toEqual([]);
+}
 
 test.describe.serial("local streaming chat", () => {
   test("shows a progressive answer and restores it after refresh", async ({
@@ -325,7 +410,7 @@ test.describe.serial("local streaming chat", () => {
     await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
   });
 
-  test("applies the light palette to overlays after switching back from dark", async ({
+  test("applies the light palette to overlays and all visible buttons after switching back from dark", async ({
     page,
   }) => {
     await page.goto("/");
@@ -343,6 +428,7 @@ test.describe.serial("local streaming chat", () => {
       "background-color",
       "rgb(255, 255, 255)",
     );
+    await expectVisibleButtonsToUseLightSurfaces(page);
 
     await conversationMenu.getByRole("menuitem").first().click();
     const renameDialog = page.getByRole("dialog");
@@ -351,6 +437,7 @@ test.describe.serial("local streaming chat", () => {
       "background-color",
       "rgb(255, 255, 255)",
     );
+    await expectVisibleButtonsToUseLightSurfaces(page);
   });
 
   test("creates two conversations and switches without mixing their messages", async ({

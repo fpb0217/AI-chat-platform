@@ -70,7 +70,7 @@ watch(
     <button
       v-if="generating"
       type="button"
-      class="composer-action stop-action"
+      class="composer-action stop-action button-subtle"
       aria-label="停止生成"
       title="停止生成"
       @click="emit('stop')"
@@ -80,7 +80,7 @@ watch(
     <button
       v-else
       type="button"
-      class="composer-action send-action"
+      class="composer-action send-action button-primary"
       :disabled="!modelValue.trim()"
       aria-label="发送消息"
       title="发送消息"

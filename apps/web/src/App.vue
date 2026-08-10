@@ -270,7 +270,7 @@ onMounted(async () => {
               @update:model-value="setReasoningLevel"
             />
             <button
-              class="topbar-new-button"
+              class="topbar-new-button button-primary"
               type="button"
               :disabled="isGenerating"
               :title="isGenerating ? '请先停止当前回答' : '新对话'"

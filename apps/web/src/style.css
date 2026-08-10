@@ -62,20 +62,12 @@
   --color-accent-dark: #39236f;
   --color-accent-soft: #f0edf8;
   --color-accent-max: #5739ad;
-  --color-send-bg: #252231;
-  --color-send-text: #fff;
-  --color-stop-bg: #f0edf6;
-  --color-stop-text: #5b477d;
   --color-modal-close-bg: #f3f0f7;
   --color-modal-close-hover: #eae4f2;
   --color-input-border: #dcd5e7;
   --color-modal-label: #625a6e;
   --color-modal-meta: #9c95a6;
   --color-modal-error: #a64d4a;
-  --color-cancel-border: #ded8e6;
-  --color-cancel-text: #706779;
-  --color-save-border: #3b2d6d;
-  --color-save-bg: #32255b;
   --color-overlay: rgb(23 19 35 / 38%);
   --color-focus-ring: rgb(116 91 210 / 8%);
   --color-focus-ring-strong: rgb(116 91 210 / 10%);
@@ -85,7 +77,6 @@
     radial-gradient(circle at 10% -10%, rgb(126 96 255 / 10%), transparent 30%),
     radial-gradient(circle at 92% 5%, rgb(44 176 255 / 8%), transparent 24%),
     var(--color-app-bg);
-  --gradient-button: linear-gradient(145deg, #f5f1ff, #ebe5ff);
   --gradient-brand: linear-gradient(145deg, #161425, #3d2b80);
   --gradient-avatar: linear-gradient(145deg, #6d52d2, #39236f);
   --gradient-empty: linear-gradient(145deg, #fff, #eee9ff);
@@ -118,6 +109,18 @@
   --shadow-dot-active: 0 0 0 3px rgb(118 91 208 / 12%);
   --shadow-mobile-sidebar: 18px 0 45px rgb(37 28 70 / 14%);
   --color-sidebar-overlay: rgb(24 19 37 / 30%);
+  /*
+   * Button roles intentionally derive from theme primitives instead of
+   * component-specific colors, so both palettes change together.
+   */
+  --button-primary-border: var(--color-border-accent);
+  --button-primary-bg: var(--color-surface-accent-strong);
+  --button-primary-text: var(--color-text-accent-strong);
+  --button-secondary-border: var(--color-border);
+  --button-secondary-bg: var(--color-surface);
+  --button-secondary-text: var(--color-text-secondary);
+  --button-subtle-bg: var(--color-surface-soft);
+  --button-subtle-text: var(--color-text-accent);
   color: var(--color-text);
   background: var(--color-page-bg);
   font-family:
@@ -188,20 +191,12 @@
   --color-accent-dark: #c2adf2;
   --color-accent-soft: #2a2440;
   --color-accent-max: #c5adff;
-  --color-send-bg: #e7e0f1;
-  --color-send-text: #2b2436;
-  --color-stop-bg: #332b42;
-  --color-stop-text: #c2adf2;
   --color-modal-close-bg: #2c2737;
   --color-modal-close-hover: #393147;
   --color-input-border: #463d53;
   --color-modal-label: #aaa1b3;
   --color-modal-meta: #aaa1b3;
   --color-modal-error: #ffaaa4;
-  --color-cancel-border: #463e51;
-  --color-cancel-text: #c2b9cb;
-  --color-save-border: #66529f;
-  --color-save-bg: #4b3b78;
   --color-overlay: rgb(4 3 8 / 68%);
   --color-focus-ring: rgb(143 117 222 / 14%);
   --color-focus-ring-strong: rgb(143 117 222 / 15%);
@@ -211,7 +206,6 @@
     radial-gradient(circle at 10% -10%, rgb(126 96 255 / 16%), transparent 30%),
     radial-gradient(circle at 92% 5%, rgb(44 176 255 / 10%), transparent 24%),
     var(--color-app-bg);
-  --gradient-button: linear-gradient(145deg, #2b2446, #241e3b);
   --gradient-brand: linear-gradient(145deg, #161425, #3d2b80);
   --gradient-avatar: linear-gradient(145deg, #8065e3, #47318b);
   --gradient-empty: linear-gradient(145deg, #29233d, #211c33);
@@ -267,6 +261,24 @@ textarea {
 
 button {
   -webkit-tap-highlight-color: transparent;
+}
+
+.button-primary {
+  border: 1px solid var(--button-primary-border);
+  background: var(--button-primary-bg);
+  color: var(--button-primary-text);
+}
+
+.button-secondary {
+  border: 1px solid var(--button-secondary-border);
+  background: var(--button-secondary-bg);
+  color: var(--button-secondary-text);
+}
+
+.button-subtle {
+  border: 0;
+  background: var(--button-subtle-bg);
+  color: var(--button-subtle-text);
 }
 
 .app-shell {
@@ -357,10 +369,7 @@ button {
   align-items: center;
   justify-content: center;
   gap: 7px;
-  border: 1px solid var(--color-border-accent);
   border-radius: 12px;
-  background: var(--gradient-button);
-  color: var(--color-text-accent);
   font-size: 12px;
   font-weight: 720;
   cursor: pointer;
@@ -1363,19 +1372,9 @@ button {
   transform: translateY(-1px);
 }
 
-.send-action {
-  background: var(--color-send-bg);
-  color: var(--color-send-text);
-}
-
 .send-action:disabled {
   cursor: not-allowed;
   opacity: 0.28;
-}
-
-.stop-action {
-  background: var(--color-stop-bg);
-  color: var(--color-stop-text);
 }
 
 .character-count {
@@ -1549,18 +1548,6 @@ button {
 .rename-modal-actions button:disabled {
   cursor: not-allowed;
   opacity: 0.55;
-}
-
-.rename-cancel {
-  border: 1px solid var(--color-cancel-border);
-  background: var(--color-surface);
-  color: var(--color-cancel-text);
-}
-
-.rename-save {
-  border: 1px solid var(--color-save-border);
-  background: var(--color-save-bg);
-  color: var(--color-text-inverse);
 }
 
 @keyframes cursor-blink {
