@@ -30,10 +30,20 @@ export type StreamState =
   | "streaming"
   | "draining";
 
+/**
+ * A message with an identity that is stable for the lifetime of this page.
+ *
+ * `id` is allowed to change when an optimistic message receives the server
+ * response. Virtualized rows must not use that mutable value as their key.
+ */
+export interface RenderedChatMessage extends ChatMessage {
+  renderKey: string;
+}
+
 const REASONING_PREFERENCE_KEY = "ai-chat.reasoning-level.v1";
 
 interface UseChatResult {
-  messages: Ref<ChatMessage[]>;
+  messages: Ref<RenderedChatMessage[]>;
   conversationId: Ref<string | null>;
   loading: Ref<boolean>;
   streamState: Ref<StreamState>;
@@ -69,9 +79,10 @@ function optimisticMessage(
   turnId: string,
   conversationId: string | null,
   reasoningLevel: ReasoningLevel,
-): ChatMessage {
+): RenderedChatMessage {
   const now = nowIso();
   return {
+    renderKey: `render-${crypto.randomUUID()}`,
     id: `local-${crypto.randomUUID()}`,
     conversationId: conversationId ?? "",
     turnId,
@@ -88,6 +99,13 @@ function optimisticMessage(
     errorCode: null,
     createdAt: now,
     updatedAt: now,
+  };
+}
+
+function withRenderKey(message: ChatMessage): RenderedChatMessage {
+  return {
+    ...message,
+    renderKey: `render-${crypto.randomUUID()}`,
   };
 }
 
@@ -146,7 +164,7 @@ function notifyTurnCompleted(
 }
 
 export function useChat(options: UseChatOptions = {}): UseChatResult {
-  const messages = ref<ChatMessage[]>([]);
+  const messages = ref<RenderedChatMessage[]>([]);
   const conversationId = ref<string | null>(null);
   const loading = ref(true);
   const streamState = ref<StreamState>("idle");
@@ -157,7 +175,7 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
   const isGenerating = computed(() => streamState.value !== "idle");
   let activeController: AbortController | null = null;
   let activeWriter: TypewriterBuffer | null = null;
-  let activeAssistant: ChatMessage | null = null;
+  let activeAssistant: RenderedChatMessage | null = null;
   let loadVersion = 0;
 
   async function loadChat(
@@ -199,7 +217,7 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
       const supportedLevels = (
         health.reasoningCapabilities?.levels ?? [DEFAULT_REASONING_LEVEL]
       ).filter(isReasoningLevel);
-      messages.value = chat?.messages ?? [];
+      messages.value = (chat?.messages ?? []).map(withRenderKey);
       conversationId.value = chat?.conversation.id ?? targetConversationId;
       model.value = health.model;
       reasoningLevels.value =
@@ -231,8 +249,8 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
 
   function applyMeta(
     data: StreamMetaData,
-    user: ChatMessage,
-    assistant: ChatMessage,
+    user: RenderedChatMessage,
+    assistant: RenderedChatMessage,
   ): void {
     if (typeof data.conversationId === "string" && data.conversationId) {
       const wasEmpty = conversationId.value === null;
@@ -253,8 +271,8 @@ export function useChat(options: UseChatOptions = {}): UseChatResult {
 
   async function handleEvent(
     parsedEvent: ParsedSseEvent,
-    user: ChatMessage,
-    assistant: ChatMessage,
+    user: RenderedChatMessage,
+    assistant: RenderedChatMessage,
     writer: TypewriterBuffer,
   ): Promise<"continue" | "terminal"> {
     let data: unknown;

@@ -14,9 +14,15 @@ import MarkdownContent from "./MarkdownContent.vue";
 const props = defineProps<{
   message: ChatMessage;
   active: boolean;
+  open?: boolean;
+  controlled?: boolean;
 }>();
 
-const open = ref(false);
+const emit = defineEmits<{
+  "update:open": [open: boolean];
+}>();
+
+const internalOpen = ref(false);
 const reasoningBody = ref<HTMLElement | null>(null);
 const reasoningContent = ref<HTMLElement | null>(null);
 const followOutput = ref(true);
@@ -24,6 +30,16 @@ const panelId = computed(() => `reasoning-${props.message.id}`);
 const bottomThreshold = 24;
 let previousScrollTop = 0;
 let contentResizeObserver: ResizeObserver | null = null;
+const isControlled = computed(() => props.controlled === true);
+const open = computed({
+  get: () => (isControlled.value ? props.open === true : internalOpen.value),
+  set: (value: boolean) => {
+    if (!isControlled.value) {
+      internalOpen.value = value;
+    }
+    emit("update:open", value);
+  },
+});
 const hasReasoning = computed(
   () =>
     props.message.role === "assistant" &&
@@ -88,17 +104,15 @@ function handleReasoningScroll(): void {
 
 function toggleOpen(): void {
   open.value = !open.value;
-  if (open.value && props.active) {
-    followOutput.value = true;
-    void nextTick(scrollToLatestReasoning);
-  }
 }
 
 watch(
   () => props.active,
   (active, wasActive) => {
     if (active) {
-      open.value = true;
+      if (!isControlled.value) {
+        open.value = true;
+      }
       followOutput.value = true;
       previousScrollTop = reasoningBody.value?.scrollTop ?? 0;
       void nextTick(scrollToLatestReasoning);
@@ -108,6 +122,13 @@ watch(
   },
   { immediate: true, flush: "sync" },
 );
+
+watch(open, (isOpen) => {
+  if (isOpen && props.active) {
+    followOutput.value = true;
+    void nextTick(scrollToLatestReasoning);
+  }
+});
 
 watch(
   () => props.message.reasoningContent,

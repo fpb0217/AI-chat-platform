@@ -2,7 +2,6 @@
 import {
   computed,
   nextTick,
-  onBeforeUnmount,
   onMounted,
   ref,
   watch,
@@ -10,12 +9,12 @@ import {
 import { AlertCircle, ArrowDown, Menu, Plus, X } from "lucide-vue-next";
 import type { ConversationSummary } from "@ai-chat/shared";
 import ChatComposer from "./components/ChatComposer.vue";
-import ChatMessage from "./components/ChatMessage.vue";
 import ConversationSidebar from "./components/ConversationSidebar.vue";
 import EmptyState from "./components/EmptyState.vue";
 import ReasoningSelector from "./components/ReasoningSelector.vue";
 import RenameConversationModal from "./components/RenameConversationModal.vue";
 import ThemeToggle from "./components/ThemeToggle.vue";
+import VirtualMessageList from "./components/VirtualMessageList.vue";
 import { useChat } from "./composables/use_chat";
 import { useConversations } from "./composables/use_conversations";
 import { useTheme } from "./composables/use_theme";
@@ -64,18 +63,13 @@ const {
 } = conversationStore;
 
 const draft = ref("");
-const scrollArea = ref<HTMLElement | null>(null);
-const scrollContent = ref<HTMLElement | null>(null);
 const followOutput = ref(true);
+const messageList = ref<InstanceType<typeof VirtualMessageList> | null>(null);
 const mobileSidebarOpen = ref(false);
 const renameTarget = ref<ConversationSummary | null>(null);
 const renameSaving = ref(false);
 const renameError = ref<string | null>(null);
 const deletingId = ref<string | null>(null);
-const bottomThreshold = 96;
-let previousScrollTop = 0;
-let previousMaxScrollTop = 0;
-let contentResizeObserver: ResizeObserver | null = null;
 
 const statusText = computed(() => {
   if (streamState.value === "connecting") {
@@ -93,68 +87,13 @@ const statusText = computed(() => {
   return "本地就绪";
 });
 
-function scrollToBottom(behavior: ScrollBehavior = "smooth"): void {
-  const element = scrollArea.value;
-  if (!element) {
-    return;
-  }
-  followOutput.value = true;
-  if (behavior === "auto") {
-    element.scrollTop = element.scrollHeight;
-  } else {
-    element.scrollTo({ top: element.scrollHeight, behavior });
-  }
-  previousScrollTop = element.scrollTop;
-  previousMaxScrollTop = Math.max(
-    0,
-    element.scrollHeight - element.clientHeight,
-  );
-}
-
 function resetView(): void {
   draft.value = "";
   followOutput.value = true;
-  previousScrollTop = 0;
-  previousMaxScrollTop = 0;
   void nextTick(() => {
-    scrollToBottom("auto");
+    messageList.value?.scrollToBottom("auto");
     document.querySelector<HTMLTextAreaElement>('textarea[aria-label="输入消息"]')?.focus();
   });
-}
-
-function handleScroll(): void {
-  const element = scrollArea.value;
-  if (!element) {
-    return;
-  }
-  const currentScrollTop = element.scrollTop;
-  const currentMaxScrollTop = Math.max(
-    0,
-    element.scrollHeight - element.clientHeight,
-  );
-  const distance = currentMaxScrollTop - currentScrollTop;
-  const previousDistance = Math.max(
-    0,
-    previousMaxScrollTop - previousScrollTop,
-  );
-  const movedUp = currentScrollTop < previousScrollTop;
-  const movedWithShrinkingContent =
-    currentMaxScrollTop < previousMaxScrollTop &&
-    distance <= previousDistance + 1;
-
-  if (movedUp && !movedWithShrinkingContent) {
-    followOutput.value = false;
-  } else if (distance < bottomThreshold) {
-    followOutput.value = true;
-  }
-  previousScrollTop = currentScrollTop;
-  previousMaxScrollTop = currentMaxScrollTop;
-}
-
-function handleContentResize(): void {
-  if (followOutput.value) {
-    scrollToBottom("auto");
-  }
 }
 
 function submit(): void {
@@ -170,7 +109,7 @@ function submit(): void {
 async function loadSelectedConversation(): Promise<void> {
   await loadChat(activeConversationId.value);
   await nextTick();
-  scrollToBottom("auto");
+  messageList.value?.scrollToBottom("auto");
 }
 
 async function chooseConversation(nextId: string): Promise<void> {
@@ -190,11 +129,21 @@ async function createNewConversation(): Promise<void> {
   if (isGenerating.value) {
     return;
   }
+  const draftBeforeRefresh = draft.value;
   await refreshConversations();
+  const preserveDraft = draft.value !== draftBeforeRefresh;
   startNewConversation();
   clearChat();
   mobileSidebarOpen.value = false;
-  resetView();
+  if (preserveDraft) {
+    followOutput.value = true;
+    void nextTick(() => {
+      messageList.value?.scrollToBottom("auto");
+      document.querySelector<HTMLTextAreaElement>('textarea[aria-label="输入消息"]')?.focus();
+    });
+  } else {
+    resetView();
+  }
 }
 
 function openRename(conversation: ConversationSummary): void {
@@ -260,34 +209,9 @@ watch(conversationId, (nextId) => {
   }
 });
 
-watch(
-  () =>
-    messages.value
-      .map(
-        (message) =>
-          `${message.id}:${message.reasoningContent ?? ""}:${message.content}:${message.status}`,
-      )
-      .join("|"),
-  async () => {
-    await nextTick();
-    if (followOutput.value) {
-      scrollToBottom("auto");
-    }
-  },
-);
-
 onMounted(async () => {
-  const content = scrollContent.value;
-  if (content) {
-    contentResizeObserver = new ResizeObserver(handleContentResize);
-    contentResizeObserver.observe(content);
-  }
   await loadConversations();
   await loadSelectedConversation();
-});
-
-onBeforeUnmount(() => {
-  contentResizeObserver?.disconnect();
 });
 </script>
 
@@ -359,35 +283,25 @@ onBeforeUnmount(() => {
           </div>
         </header>
 
-        <main ref="scrollArea" class="conversation-scroll" @scroll="handleScroll">
-          <div ref="scrollContent" class="conversation-column">
-            <div v-if="loading || conversationsLoading" class="loading-state" aria-label="正在加载对话">
-              <span />
-              <span />
-              <span />
-            </div>
-            <EmptyState v-else-if="messages.length === 0" />
-            <div v-else class="message-list" aria-live="polite">
-              <ChatMessage
-                v-for="message in messages"
-                :key="message.id"
-                :message="message"
-                :reasoning-active="
-                  message.role === 'assistant' &&
-                    message.status === 'streaming' &&
-                    streamState === 'reasoning'
-                "
-              />
-            </div>
-          </div>
-        </main>
+        <VirtualMessageList
+          ref="messageList"
+          :messages="messages"
+          :stream-state="streamState"
+          :loading="loading || conversationsLoading"
+          :conversation-key="activeConversationId ?? 'new'"
+          @follow-change="followOutput = $event"
+        >
+          <template #empty>
+            <EmptyState />
+          </template>
+        </VirtualMessageList>
 
         <button
           v-if="!followOutput && messages.length > 0"
           class="back-to-bottom"
           type="button"
           aria-label="回到底部"
-          @click="scrollToBottom()"
+          @click="messageList?.scrollToBottom()"
         >
           <ArrowDown :size="17" />
         </button>

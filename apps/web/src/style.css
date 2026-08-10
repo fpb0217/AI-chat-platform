@@ -819,6 +819,7 @@ button {
   flex: 1;
   overflow-x: hidden;
   overflow-y: auto;
+  overflow-anchor: none;
 }
 
 .conversation-column {
@@ -829,9 +830,17 @@ button {
 }
 
 .message-list {
-  display: flex;
-  flex-direction: column;
-  gap: 30px;
+  position: relative;
+  width: 100%;
+  min-height: 100%;
+}
+
+.virtual-message-row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  contain: layout style;
 }
 
 .message-row {
@@ -839,6 +848,9 @@ button {
   grid-template-columns: 34px minmax(0, 1fr);
   align-items: start;
   gap: 13px;
+}
+
+.message-row-new {
   animation: message-in 180ms ease-out both;
 }
 
@@ -1001,6 +1013,18 @@ button {
 .message-status-error {
   background: var(--color-surface-danger-muted);
   color: var(--color-text-danger-strong);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .markdown-shell {
@@ -1675,10 +1699,6 @@ button {
 
   .conversation-column {
     padding: 22px 14px 36px;
-  }
-
-  .message-list {
-    gap: 25px;
   }
 
   .message-row {

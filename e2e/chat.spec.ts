@@ -333,6 +333,10 @@ test.describe.serial("local streaming chat", () => {
     await page.getByLabel("输入消息").fill("会话一Z9Q");
     await page.getByRole("button", { name: "发送消息" }).click();
     await expect(page.getByRole("main")).toContainText("会话一Z9Q");
+    await expect(page.getByRole("main")).toContainText(
+      "这是一个逐字出现的流式回答。",
+    );
+    await expect(page.locator(".topbar-new-button")).toBeEnabled();
 
     await page.locator(".topbar-new-button").click();
     await expect(page.getByText("现在，想聊点什么？")).toBeVisible();

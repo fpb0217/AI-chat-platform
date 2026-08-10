@@ -28,3 +28,4 @@
 | 思考过程折叠区 | [DeepSeek 思考过程流式展示与折叠](reasoning_chain_panel/deepseek_reasoning_chain_panel.md) | `accepted` | 2026-08-08 |
 | 会话列表管理 | [会话列表管理](session_list_management/session_list_management.md) | `accepted` | 2026-08-10 |
 | 主题切换 | [浅色与深色主题切换](theme_switch/theme_switch.md) | `accepted` | 2026-08-10 |
+| 长对话虚拟列表优化 | [长对话消息虚拟列表优化](virtual_list_optimization/virtual_list_optimization.md) | `accepted` | 2026-08-10 |

@@ -8,6 +8,15 @@ import ReasoningPanel from "./ReasoningPanel.vue";
 const props = defineProps<{
   message: ChatMessage;
   reasoningActive: boolean;
+  reasoningOpen?: boolean;
+  reasoningOpenControlled?: boolean;
+  animate?: boolean;
+  virtualIndex?: number;
+  messageCount?: number;
+}>();
+
+const emit = defineEmits<{
+  "reasoning-open-change": [open: boolean];
 }>();
 
 const REASONING_LABELS: Record<ReasoningLevel, string> = {
@@ -33,7 +42,15 @@ const showAnswer = computed(
 <template>
   <article
     class="message-row"
-    :class="message.role === 'user' ? 'message-row-user' : 'message-row-assistant'"
+    :class="[
+      message.role === 'user' ? 'message-row-user' : 'message-row-assistant',
+      { 'message-row-new': animate },
+    ]"
+    role="listitem"
+    :aria-posinset="
+      virtualIndex === undefined ? undefined : virtualIndex + 1
+    "
+    :aria-setsize="messageCount"
     :data-message-id="message.id"
   >
     <div
@@ -62,6 +79,9 @@ const showAnswer = computed(
         <ReasoningPanel
           :message="message"
           :active="reasoningActive"
+          :open="reasoningOpen"
+          :controlled="reasoningOpenControlled === true"
+          @update:open="emit('reasoning-open-change', $event)"
         />
         <MarkdownContent
           v-if="showAnswer"

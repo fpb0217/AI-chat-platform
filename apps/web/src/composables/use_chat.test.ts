@@ -102,6 +102,8 @@ describe("useChat", () => {
     const sending = chat.sendMessage("问候", "high");
     await flushPromises();
     expect(chat.streamState.value).toBe("reasoning");
+    const renderKey = chat.messages.value[1]?.renderKey;
+    expect(renderKey).toEqual(expect.any(String));
     expect(chat.messages.value[1]).toMatchObject({
       reasoningContent: "先分析问题。",
       reasoningDurationMs: null,
@@ -125,6 +127,7 @@ describe("useChat", () => {
       reasoningLevel: "high",
       finishReason: "stop",
     });
+    expect(chat.messages.value[1]?.renderKey).toBe(renderKey);
     wrapper.unmount();
   });
 

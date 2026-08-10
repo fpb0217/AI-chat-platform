@@ -1,6 +1,13 @@
-import { resolve } from "node:path";
+import { rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { buildApp } from "../apps/api/src/app.js";
 import { findWorkspaceRoot, loadConfig } from "../apps/api/src/config.js";
+import { createDatabase } from "../apps/api/src/db/client.js";
+import {
+  ChatRepository,
+  type TurnMessages,
+} from "../apps/api/src/db/repository.js";
 import type { ModelMessage } from "../apps/api/src/db/repository.js";
 import {
   ProviderError,
@@ -109,10 +116,99 @@ class E2eProvider implements ChatProvider {
 }
 
 const config = loadConfig();
+const migrationsFolder = resolve(findWorkspaceRoot(), "apps/api/drizzle");
+const e2eDatabasePath = join(
+  tmpdir(),
+  `ai-chat-platform-e2e-${process.pid}.db`,
+);
+
+function seedLongConversation(): void {
+  const database = createDatabase(e2eDatabasePath, migrationsFolder);
+  const repository = new ChatRepository(database);
+  repository.ensureDefaultConversation();
+
+  let longConversationId: string | null = null;
+  for (let turnIndex = 0; turnIndex < 250; turnIndex += 1) {
+    const reasoningLevel = turnIndex % 5 === 0 ? "high" : "off";
+    const turn: TurnMessages = repository.beginTurn(
+      longConversationId,
+      `长会话问题 ${turnIndex + 1}：请继续分析这个历史主题。`,
+      "deepseek-v4-flash",
+      reasoningLevel,
+    );
+    longConversationId = turn.userMessage.conversationId;
+    const status =
+      turnIndex % 37 === 0
+        ? "error"
+        : turnIndex % 29 === 0
+          ? "stopped"
+          : "completed";
+    const reasoningContent =
+      reasoningLevel === "high"
+        ? `思考过程 ${turnIndex + 1}：先拆分约束，再检查上下文中的历史消息。`
+        : null;
+    const content =
+      turnIndex === 249
+        ? "长会话消息 500：这是最后一条消息，用于验证初始定位到底部。"
+        : turnIndex % 11 === 0
+          ? [
+              `## 历史回答 ${turnIndex + 1}`,
+              "",
+              "这是一段包含列表、引用和行内 `virtualizer` 的长回答。",
+              "",
+              "- 保留滚动锚点",
+              "- 测量动态高度",
+              "",
+              "> 历史消息离开视口后可以安全卸载。",
+              "",
+              "```ts",
+              `const messageIndex = ${turnIndex};`,
+              "console.log(messageIndex);",
+              "```",
+            ].join("\n")
+          : `回答 ${turnIndex + 1}：这是用于虚拟列表回归的历史内容。`.repeat(
+              turnIndex % 7 === 0 ? 3 : 1,
+            );
+
+    repository.finalizeAssistant(turn.assistantMessage.id, {
+      content,
+      reasoningContent,
+      reasoningDurationMs: reasoningContent ? 1_200 : null,
+      status,
+      finishReason: status === "completed" ? "stop" : null,
+      usage: null,
+      errorCode: status === "error" ? "UPSTREAM_UNAVAILABLE" : null,
+    });
+  }
+
+  if (!longConversationId) {
+    throw new Error("Long E2E conversation was not created");
+  }
+  repository.renameConversation(longConversationId, "长会话测试");
+
+  const defaultTurn = repository.beginTurn(
+    "default",
+    "E2E 默认会话消息",
+    "deepseek-v4-flash",
+    "off",
+  );
+  repository.finalizeAssistant(defaultTurn.assistantMessage.id, {
+    content: "E2E 默认回答。",
+    reasoningContent: null,
+    reasoningDurationMs: null,
+    status: "completed",
+    finishReason: "stop",
+    usage: null,
+    errorCode: null,
+  });
+  database.close();
+}
+
+seedLongConversation();
 const app = await buildApp({
   config: { ...config, port: E2E_API_PORT },
-  databasePath: ":memory:",
-  migrationsFolder: resolve(findWorkspaceRoot(), "apps/api/drizzle"),
+  databasePath: e2eDatabasePath,
+  migrationsFolder,
   provider: new E2eProvider(),
   logger: false,
   serveFrontend: false,
@@ -122,6 +218,9 @@ await app.listen({ host: "127.0.0.1", port: E2E_API_PORT });
 
 async function shutdown(): Promise<void> {
   await app.close();
+  rmSync(e2eDatabasePath, { force: true });
+  rmSync(`${e2eDatabasePath}-wal`, { force: true });
+  rmSync(`${e2eDatabasePath}-shm`, { force: true });
   process.exit(0);
 }
 

@@ -82,6 +82,26 @@ describe("ReasoningPanel", () => {
     );
   });
 
+  it("accepts a controlled open state from the virtualized row owner", async () => {
+    const wrapper = mount(ReasoningPanel, {
+      props: {
+        message: createMessage(),
+        active: false,
+        open: false,
+        controlled: true,
+      },
+    });
+    const toggle = wrapper.get(".reasoning-toggle");
+
+    expect(toggle.attributes("aria-expanded")).toBe("false");
+    await toggle.trigger("click");
+    expect(wrapper.emitted("update:open")?.at(-1)).toEqual([true]);
+
+    await wrapper.setProps({ open: true });
+    expect(toggle.attributes("aria-expanded")).toBe("true");
+    wrapper.unmount();
+  });
+
   it("describes a reasoning-only interruption and hides absent reasoning", () => {
     const stopped = mount(ReasoningPanel, {
       props: {
