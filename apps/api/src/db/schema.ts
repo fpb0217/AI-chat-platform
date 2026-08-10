@@ -10,9 +10,13 @@ import {
 export const conversations = sqliteTable("conversations", {
   id: text("id").primaryKey(),
   title: text("title").notNull(),
+  titleSource: text("title_source", { enum: ["auto", "manual"] })
+    .notNull()
+    .default("auto"),
+  titleTurnId: text("title_turn_id"),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
-});
+}, (table) => [index("idx_conversations_updated_at").on(table.updatedAt)]);
 
 export const messages = sqliteTable(
   "messages",

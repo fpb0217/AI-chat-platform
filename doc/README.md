@@ -9,6 +9,7 @@
 | 流式输出 | [本地 SSE 流式 AI 对话 MVP](streaming_output/local_sse_chat_mvp.md) | 2026-08-07 |
 | 推理强度切换 | [DeepSeek 推理强度切换](reasoning_effort_switch/deepseek_reasoning_effort_switch.md) | 2026-08-07 |
 | 思考过程折叠区 | [DeepSeek 思考过程流式展示与折叠](reasoning_chain_panel/deepseek_reasoning_chain_panel.md) | 2026-08-07 |
+| 会话列表管理 | [会话列表管理](session_list_management/session_list_management.md) | 2026-08-10 |
 
 ## 已验收修复
 

@@ -1,3 +1,9 @@
+import {
+  MAX_AUTOMATIC_TITLE_LENGTH,
+  graphemeCount,
+  normalizeTitleText,
+  truncateGraphemes,
+} from "@ai-chat/shared";
 import { describe, expect, it, vi } from "vitest";
 import { DeepSeekProvider } from "./deepseek.js";
 import { ProviderError } from "./types.js";
@@ -206,5 +212,91 @@ describe("DeepSeekProvider", () => {
       { type: "delta", text: "partial" },
     ]);
     expect(thrown).toMatchObject({ code: "UPSTREAM_STREAM_INTERRUPTED" });
+  });
+
+  it("generates a constrained automatic title with the required DeepSeek request", async () => {
+    const fetchImplementation = vi.fn<typeof fetch>(async () =>
+      Response.json({
+        choices: [{ message: { content: '{"title":"\\" SSE 与 SDK 对比 \\""}' } }],
+      }),
+    );
+    const provider = new DeepSeekProvider({
+      apiKey: "sk-test",
+      baseUrl: "https://api.deepseek.com",
+      model: "deepseek-v4-pro",
+      fetchImplementation,
+    });
+
+    await expect(
+      provider.generateTitle?.("如何比较 SSE 和 SDK", "请从可靠性与调试成本分析。"),
+    ).resolves.toBe("SSE 与 SDK 对比");
+
+    const [, request] = fetchImplementation.mock.calls[0] as Parameters<
+      typeof fetch
+    >;
+    const body = JSON.parse(request?.body as string) as Record<string, unknown>;
+    expect(body).toMatchObject({
+      model: "deepseek-v4-flash",
+      thinking: { type: "disabled" },
+      stream: false,
+      response_format: { type: "json_object" },
+      max_tokens: 96,
+    });
+    expect(body.messages).toEqual([
+      expect.objectContaining({ role: "system" }),
+      {
+        role: "user",
+        content: JSON.stringify({
+          question: "如何比较 SSE 和 SDK",
+          answer: "请从可靠性与调试成本分析。",
+        }),
+      },
+    ]);
+  });
+
+  it("preserves a semantically complete 31-grapheme comparison title", async () => {
+    const expectedTitle = "claude code和codex在harness工程上的区别";
+    const fetchImplementation = vi.fn<typeof fetch>(async () =>
+      Response.json({
+        choices: [
+          { message: { content: JSON.stringify({ title: expectedTitle }) } },
+        ],
+      }),
+    );
+    const provider = new DeepSeekProvider({
+      apiKey: "sk-test",
+      baseUrl: "https://api.deepseek.com",
+      model: "deepseek-v4-flash",
+      fetchImplementation,
+    });
+
+    await expect(
+      provider.generateTitle?.(
+        "结合用户体验，介绍一下claude code和codex在harness工程上的区别",
+        "两者在代理编排、上下文管理和工程集成方式上存在差异。",
+      ),
+    ).resolves.toBe(expectedTitle);
+  });
+
+  it("falls back to a normalized question when title output is invalid or too long", async () => {
+    const fetchImplementation = vi.fn<typeof fetch>(async () =>
+      Response.json({ choices: [{ message: { content: "not-json" } }] }),
+    );
+    const provider = new DeepSeekProvider({
+      apiKey: "sk-test",
+      baseUrl: "https://api.deepseek.com",
+      model: "deepseek-v4-flash",
+      fetchImplementation,
+    });
+
+    const question = `  ${"很长的问题".repeat(12)}🙂🙂🙂  `;
+    const title = await provider.generateTitle?.(question, "回答");
+    expect(title).toBe(
+      truncateGraphemes(
+        normalizeTitleText(question),
+        MAX_AUTOMATIC_TITLE_LENGTH,
+      ),
+    );
+    expect(graphemeCount(title ?? "")).toBe(MAX_AUTOMATIC_TITLE_LENGTH);
   });
 });

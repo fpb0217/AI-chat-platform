@@ -1,8 +1,15 @@
 import type { ServerResponse } from "node:http";
 import {
+  autoTitleRequestSchema,
+  conversationIdSchema,
   DEFAULT_REASONING_LEVEL,
+  MAX_AUTOMATIC_TITLE_LENGTH,
+  normalizeTitleText,
+  renameConversationRequestSchema,
   sendMessageRequestSchema,
+  truncateGraphemes,
   type ApiErrorResponse,
+  type ConversationListResponse,
   type StreamDeltaData,
   type StreamDoneData,
   type StreamErrorCode,
@@ -13,7 +20,12 @@ import {
   type TokenUsage,
 } from "@ai-chat/shared";
 import type { FastifyInstance } from "fastify";
-import type { ChatRepository } from "../db/repository.js";
+import {
+  ActiveConversationGenerationError,
+  ConversationNotFoundError,
+  DEFAULT_CONVERSATION_ID,
+  type ChatRepository,
+} from "../db/repository.js";
 import { ProviderError, type ChatProvider } from "../provider/types.js";
 
 interface ChatRouteOptions {
@@ -78,6 +90,7 @@ export function registerChatRoutes(
   options: ChatRouteOptions,
 ): void {
   let generationActive = false;
+  let activeConversationId: string | null = null;
 
   app.get("/api/health", async () => ({
     status: "ok" as const,
@@ -89,6 +102,166 @@ export function registerChatRoutes(
       defaultLevel: DEFAULT_REASONING_LEVEL,
     },
   }));
+
+  app.get("/api/conversations", async (): Promise<ConversationListResponse> => ({
+    conversations: options.repository.listConversations(),
+  }));
+
+  app.get("/api/conversations/:conversationId", async (request, reply) => {
+    const parsedId = conversationIdSchema.safeParse(
+      (request.params as { conversationId?: unknown }).conversationId,
+    );
+    if (!parsedId.success) {
+      return reply
+        .status(404)
+        .send(jsonError("CONVERSATION_NOT_FOUND", "会话不存在"));
+    }
+
+    const chat = options.repository.getConversation(parsedId.data);
+    if (!chat) {
+      return reply
+        .status(404)
+        .send(jsonError("CONVERSATION_NOT_FOUND", "会话不存在"));
+    }
+    return chat;
+  });
+
+  app.patch("/api/conversations/:conversationId", async (request, reply) => {
+    const parsedId = conversationIdSchema.safeParse(
+      (request.params as { conversationId?: unknown }).conversationId,
+    );
+    if (!parsedId.success) {
+      return reply
+        .status(404)
+        .send(jsonError("CONVERSATION_NOT_FOUND", "会话不存在"));
+    }
+
+    const parsedBody = renameConversationRequestSchema.safeParse(request.body);
+    if (!parsedBody.success) {
+      return reply
+        .status(400)
+        .send(jsonError("INVALID_CONVERSATION_TITLE", parsedBody.error.issues[0]?.message ?? "标题格式无效"));
+    }
+
+    const summary = options.repository.renameConversation(
+      parsedId.data,
+      parsedBody.data.title,
+    );
+    if (!summary) {
+      return reply
+        .status(404)
+        .send(jsonError("CONVERSATION_NOT_FOUND", "会话不存在"));
+    }
+    return summary;
+  });
+
+  app.delete("/api/conversations/:conversationId", async (request, reply) => {
+    const parsedId = conversationIdSchema.safeParse(
+      (request.params as { conversationId?: unknown }).conversationId,
+    );
+    if (!parsedId.success) {
+      return reply
+        .status(404)
+        .send(jsonError("CONVERSATION_NOT_FOUND", "会话不存在"));
+    }
+    if (activeConversationId === parsedId.data) {
+      return reply
+        .status(409)
+        .send(jsonError("GENERATION_IN_PROGRESS", "请先停止当前回答"));
+    }
+
+    try {
+      options.repository.deleteConversation(parsedId.data);
+    } catch (error) {
+      if (error instanceof ConversationNotFoundError) {
+        return reply
+          .status(404)
+          .send(jsonError("CONVERSATION_NOT_FOUND", "会话不存在"));
+      }
+      if (error instanceof ActiveConversationGenerationError) {
+        return reply
+          .status(409)
+          .send(jsonError("GENERATION_IN_PROGRESS", "请先停止当前回答"));
+      }
+      throw error;
+    }
+    return reply.status(204).send();
+  });
+
+  app.post("/api/conversations/:conversationId/auto-title", async (request, reply) => {
+    const parsedId = conversationIdSchema.safeParse(
+      (request.params as { conversationId?: unknown }).conversationId,
+    );
+    if (!parsedId.success) {
+      return reply
+        .status(404)
+        .send(jsonError("CONVERSATION_NOT_FOUND", "会话不存在"));
+    }
+    const parsedBody = autoTitleRequestSchema.safeParse(request.body);
+    if (!parsedBody.success) {
+      return reply
+        .status(400)
+        .send(jsonError("INVALID_AUTO_TITLE_REQUEST", "自动标题请求无效"));
+    }
+
+    const summary = options.repository.getConversationSummary(parsedId.data);
+    if (!summary) {
+      return reply
+        .status(404)
+        .send(jsonError("CONVERSATION_NOT_FOUND", "会话不存在"));
+    }
+
+    const turn = options.repository.getLatestTitleTurn(
+      parsedId.data,
+      parsedBody.data.turnId,
+    );
+    if (
+      !turn ||
+      turn.titleSource === "manual" ||
+      turn.titleTurnId === parsedBody.data.turnId ||
+      turn.assistantStatus === "streaming"
+    ) {
+      return summary;
+    }
+
+    const fallback = truncateGraphemes(
+      normalizeTitleText(turn.question),
+      MAX_AUTOMATIC_TITLE_LENGTH,
+    );
+    let title = fallback;
+    const canUseModel =
+      turn.answer.length > 0 &&
+      (turn.assistantStatus === "completed" ||
+        turn.assistantStatus === "stopped") &&
+      options.provider.configured &&
+      typeof options.provider.generateTitle === "function";
+    if (canUseModel) {
+      const titleController = new AbortController();
+      const titleTimeout = setTimeout(() => {
+        titleController.abort(new Error("title request timeout"));
+      }, options.requestTimeoutMs);
+      titleTimeout.unref();
+      try {
+        title = await options.provider.generateTitle!(
+          turn.question,
+          turn.answer,
+          { signal: titleController.signal },
+        );
+      } catch {
+        title = fallback;
+      } finally {
+        clearTimeout(titleTimeout);
+      }
+    }
+
+    return (
+      options.repository.applyAutomaticTitle(
+        parsedId.data,
+        parsedBody.data.turnId,
+        title,
+      ) ?? summary
+    );
+  });
 
   app.get("/api/chat", async () => options.repository.getChat());
 
@@ -129,18 +302,33 @@ export function registerChatRoutes(
         .send(jsonError("GENERATION_IN_PROGRESS", "当前已有回答正在生成"));
     }
 
+    const hasConversationId =
+      typeof request.body === "object" &&
+      request.body !== null &&
+      Object.prototype.hasOwnProperty.call(request.body, "conversationId");
+    const requestedConversationId = hasConversationId
+      ? parsed.data.conversationId
+      : DEFAULT_CONVERSATION_ID;
+
     generationActive = true;
     let turn;
     try {
       turn = options.repository.beginTurn(
+        requestedConversationId,
         parsed.data.content,
         options.provider.model,
         parsed.data.reasoningLevel,
       );
     } catch (error) {
       generationActive = false;
+      if (error instanceof ConversationNotFoundError) {
+        return reply
+          .status(404)
+          .send(jsonError("CONVERSATION_NOT_FOUND", "会话不存在"));
+      }
       throw error;
     }
+    activeConversationId = turn.userMessage.conversationId;
 
     reply.hijack();
     const response = reply.raw;
@@ -152,6 +340,7 @@ export function registerChatRoutes(
     });
 
     const meta: StreamMetaData = {
+      conversationId: turn.userMessage.conversationId,
       userMessageId: turn.userMessage.id,
       assistantMessageId: turn.assistantMessage.id,
       turnId: turn.userMessage.turnId,
@@ -207,7 +396,9 @@ export function registerChatRoutes(
     keepAlive.unref();
 
     try {
-      const history = options.repository.getModelHistory();
+      const history = options.repository.getModelHistory(
+        turn.userMessage.conversationId,
+      );
       for await (const providerEvent of options.provider.streamChat(
         history,
         {
@@ -332,6 +523,7 @@ export function registerChatRoutes(
     } finally {
       finalized = true;
       generationActive = false;
+      activeConversationId = null;
       clearTimeout(timeout);
       clearInterval(keepAlive);
       request.raw.off("aborted", disconnect);

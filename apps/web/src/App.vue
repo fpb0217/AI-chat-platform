@@ -7,19 +7,29 @@ import {
   ref,
   watch,
 } from "vue";
-import {
-  AlertCircle,
-  ArrowDown,
-  X,
-} from "lucide-vue-next";
+import { AlertCircle, ArrowDown, Menu, Plus, X } from "lucide-vue-next";
+import type { ConversationSummary } from "@ai-chat/shared";
 import ChatComposer from "./components/ChatComposer.vue";
 import ChatMessage from "./components/ChatMessage.vue";
+import ConversationSidebar from "./components/ConversationSidebar.vue";
 import EmptyState from "./components/EmptyState.vue";
 import ReasoningSelector from "./components/ReasoningSelector.vue";
+import RenameConversationModal from "./components/RenameConversationModal.vue";
 import { useChat } from "./composables/use_chat";
+import { useConversations } from "./composables/use_conversations";
+
+const conversationStore = useConversations();
+const chat = useChat({
+  onConversationCreated: (conversationId) => {
+    conversationStore.ensureConversation(conversationId);
+  },
+  onTurnCompleted: (conversationId, turnId) =>
+    conversationStore.requestAutomaticTitle(conversationId, turnId),
+});
 
 const {
   messages,
+  conversationId,
   loading,
   streamState,
   isGenerating,
@@ -28,20 +38,42 @@ const {
   reasoningLevels,
   reasoningLevel,
   loadChat,
+  clearChat,
   sendMessage,
   setReasoningLevel,
   stopGeneration,
   dismissError,
-} = useChat();
+} = chat;
+
+const {
+  conversations,
+  activeConversationId,
+  loading: conversationsLoading,
+  errorMessage: conversationsError,
+  loadConversations,
+  refreshConversations,
+  selectConversation,
+  setActiveConversation,
+  startNewConversation,
+  renameConversation,
+  deleteConversation,
+  dismissError: dismissConversationError,
+} = conversationStore;
 
 const draft = ref("");
 const scrollArea = ref<HTMLElement | null>(null);
 const scrollContent = ref<HTMLElement | null>(null);
 const followOutput = ref(true);
+const mobileSidebarOpen = ref(false);
+const renameTarget = ref<ConversationSummary | null>(null);
+const renameSaving = ref(false);
+const renameError = ref<string | null>(null);
+const deletingId = ref<string | null>(null);
 const bottomThreshold = 96;
 let previousScrollTop = 0;
 let previousMaxScrollTop = 0;
 let contentResizeObserver: ResizeObserver | null = null;
+
 const statusText = computed(() => {
   if (streamState.value === "connecting") {
     return "正在连接";
@@ -76,6 +108,17 @@ function scrollToBottom(behavior: ScrollBehavior = "smooth"): void {
   );
 }
 
+function resetView(): void {
+  draft.value = "";
+  followOutput.value = true;
+  previousScrollTop = 0;
+  previousMaxScrollTop = 0;
+  void nextTick(() => {
+    scrollToBottom("auto");
+    document.querySelector<HTMLTextAreaElement>('textarea[aria-label="输入消息"]')?.focus();
+  });
+}
+
 function handleScroll(): void {
   const element = scrollArea.value;
   if (!element) {
@@ -92,8 +135,6 @@ function handleScroll(): void {
     previousMaxScrollTop - previousScrollTop,
   );
   const movedUp = currentScrollTop < previousScrollTop;
-  // Collapsing the reasoning panel can clamp scrollTop upward without moving
-  // the viewport away from the bottom; that layout shift is not user intent.
   const movedWithShrinkingContent =
     currentMaxScrollTop < previousMaxScrollTop &&
     distance <= previousDistance + 1;
@@ -123,6 +164,99 @@ function submit(): void {
   void sendMessage(content, reasoningLevel.value);
 }
 
+async function loadSelectedConversation(): Promise<void> {
+  await loadChat(activeConversationId.value);
+  await nextTick();
+  scrollToBottom("auto");
+}
+
+async function chooseConversation(nextId: string): Promise<void> {
+  if (isGenerating.value || nextId === activeConversationId.value) {
+    mobileSidebarOpen.value = false;
+    return;
+  }
+  if (!selectConversation(nextId)) {
+    return;
+  }
+  mobileSidebarOpen.value = false;
+  resetView();
+  await loadChat(nextId);
+}
+
+async function createNewConversation(): Promise<void> {
+  if (isGenerating.value) {
+    return;
+  }
+  await refreshConversations();
+  startNewConversation();
+  clearChat();
+  mobileSidebarOpen.value = false;
+  resetView();
+}
+
+function openRename(conversation: ConversationSummary): void {
+  if (isGenerating.value) {
+    return;
+  }
+  renameTarget.value = conversation;
+  renameError.value = null;
+}
+
+function closeRename(): void {
+  if (renameSaving.value) {
+    return;
+  }
+  renameTarget.value = null;
+  renameError.value = null;
+}
+
+async function saveRename(title: string): Promise<void> {
+  if (!renameTarget.value) {
+    return;
+  }
+  renameSaving.value = true;
+  renameError.value = null;
+  try {
+    await renameConversation(renameTarget.value.id, title);
+    renameTarget.value = null;
+  } catch (error) {
+    renameError.value =
+      error instanceof Error ? error.message : "重命名失败";
+  } finally {
+    renameSaving.value = false;
+  }
+}
+
+async function confirmDelete(conversationIdToDelete: string): Promise<void> {
+  if (isGenerating.value || deletingId.value) {
+    return;
+  }
+  const wasActive = activeConversationId.value === conversationIdToDelete;
+  deletingId.value = conversationIdToDelete;
+  try {
+    const nextId = await deleteConversation(conversationIdToDelete);
+    if (wasActive) {
+      resetView();
+      if (nextId) {
+        await loadChat(nextId);
+      } else {
+        clearChat();
+      }
+    }
+  } catch (error) {
+    errorMessage.value =
+      error instanceof Error ? error.message : "删除会话失败";
+  } finally {
+    deletingId.value = null;
+  }
+}
+
+watch(conversationId, (nextId) => {
+  if (nextId !== activeConversationId.value) {
+    setActiveConversation(nextId);
+  }
+});
+
 watch(
   () =>
     messages.value
@@ -145,9 +279,8 @@ onMounted(async () => {
     contentResizeObserver = new ResizeObserver(handleContentResize);
     contentResizeObserver.observe(content);
   }
-  await loadChat();
-  await nextTick();
-  scrollToBottom("auto");
+  await loadConversations();
+  await loadSelectedConversation();
 });
 
 onBeforeUnmount(() => {
@@ -157,78 +290,134 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="app-shell">
-    <header class="topbar">
-      <div class="brand-group">
-        <div class="brand-mark" aria-hidden="true">流</div>
-        <div>
-          <div class="brand-name">流光</div>
-          <div class="brand-subtitle">LOCAL AI CONVERSATION</div>
-        </div>
-      </div>
-
-      <div class="model-group">
-        <div class="runtime-status">
-          <span class="status-dot" :class="{ active: isGenerating }" />
-          {{ statusText }}
-        </div>
-        <ReasoningSelector
-          :model="model"
-          :model-value="reasoningLevel"
-          :levels="reasoningLevels"
-          :disabled="isGenerating"
-          @update:model-value="setReasoningLevel"
-        />
-      </div>
-    </header>
-
-    <main ref="scrollArea" class="conversation-scroll" @scroll="handleScroll">
-      <div ref="scrollContent" class="conversation-column">
-        <div v-if="loading" class="loading-state" aria-label="正在加载对话">
-          <span />
-          <span />
-          <span />
-        </div>
-        <EmptyState v-else-if="messages.length === 0" />
-        <div v-else class="message-list" aria-live="polite">
-          <ChatMessage
-            v-for="message in messages"
-            :key="message.id"
-            :message="message"
-            :reasoning-active="
-              message.role === 'assistant' &&
-                message.status === 'streaming' &&
-                streamState === 'reasoning'
-            "
-          />
-        </div>
-      </div>
-    </main>
-
-    <button
-      v-if="!followOutput && messages.length > 0"
-      class="back-to-bottom"
-      type="button"
-      aria-label="回到底部"
-      @click="scrollToBottom()"
-    >
-      <ArrowDown :size="17" />
-    </button>
-
-    <div class="composer-region">
-      <div v-if="errorMessage" class="error-banner" role="alert">
-        <AlertCircle :size="16" />
-        <span>{{ errorMessage }}</span>
-        <button type="button" aria-label="关闭错误提示" @click="dismissError">
-          <X :size="15" />
-        </button>
-      </div>
-      <ChatComposer
-        v-model="draft"
-        :generating="isGenerating"
-        @send="submit"
-        @stop="stopGeneration"
+    <div class="app-layout">
+      <ConversationSidebar
+        :conversations="conversations"
+        :active-conversation-id="activeConversationId"
+        :disabled="isGenerating"
+        :mobile-open="mobileSidebarOpen"
+        :deleting-id="deletingId"
+        @select="chooseConversation"
+        @new="createNewConversation"
+        @rename="openRename"
+        @delete="confirmDelete"
+        @close="mobileSidebarOpen = false"
       />
-      <p class="composer-note">AI 可能会犯错，请核对重要信息 · 对话保存在本机</p>
+      <button
+        v-if="mobileSidebarOpen"
+        class="sidebar-overlay"
+        type="button"
+        aria-label="关闭会话列表"
+        @click="mobileSidebarOpen = false"
+      />
+
+      <section class="chat-pane">
+        <header class="topbar">
+          <div class="brand-group">
+            <button
+              class="mobile-sidebar-trigger"
+              type="button"
+              aria-label="打开会话列表"
+              @click="mobileSidebarOpen = true"
+            >
+              <Menu :size="19" />
+            </button>
+            <div class="brand-mark" aria-hidden="true">流</div>
+            <div>
+              <div class="brand-name">流光</div>
+              <div class="brand-subtitle">LOCAL AI CONVERSATION</div>
+            </div>
+          </div>
+
+          <div class="model-group">
+            <div class="runtime-status">
+              <span class="status-dot" :class="{ active: isGenerating }" />
+              {{ statusText }}
+            </div>
+            <ReasoningSelector
+              :model="model"
+              :model-value="reasoningLevel"
+              :levels="reasoningLevels"
+              :disabled="isGenerating"
+              @update:model-value="setReasoningLevel"
+            />
+            <button
+              class="topbar-new-button"
+              type="button"
+              :disabled="isGenerating"
+              :title="isGenerating ? '请先停止当前回答' : '新对话'"
+              aria-label="新对话"
+              @click="createNewConversation"
+            >
+              <Plus :size="16" />
+              <span>新对话</span>
+            </button>
+          </div>
+        </header>
+
+        <main ref="scrollArea" class="conversation-scroll" @scroll="handleScroll">
+          <div ref="scrollContent" class="conversation-column">
+            <div v-if="loading || conversationsLoading" class="loading-state" aria-label="正在加载对话">
+              <span />
+              <span />
+              <span />
+            </div>
+            <EmptyState v-else-if="messages.length === 0" />
+            <div v-else class="message-list" aria-live="polite">
+              <ChatMessage
+                v-for="message in messages"
+                :key="message.id"
+                :message="message"
+                :reasoning-active="
+                  message.role === 'assistant' &&
+                    message.status === 'streaming' &&
+                    streamState === 'reasoning'
+                "
+              />
+            </div>
+          </div>
+        </main>
+
+        <button
+          v-if="!followOutput && messages.length > 0"
+          class="back-to-bottom"
+          type="button"
+          aria-label="回到底部"
+          @click="scrollToBottom()"
+        >
+          <ArrowDown :size="17" />
+        </button>
+
+        <div class="composer-region">
+          <div v-if="errorMessage || conversationsError" class="error-banner" role="alert">
+            <AlertCircle :size="16" />
+            <span>{{ errorMessage || conversationsError }}</span>
+            <button
+              type="button"
+              aria-label="关闭错误提示"
+              @click="errorMessage ? dismissError() : dismissConversationError()"
+            >
+              <X :size="15" />
+            </button>
+          </div>
+          <ChatComposer
+            v-model="draft"
+            :generating="isGenerating"
+            @send="submit"
+            @stop="stopGeneration"
+          />
+          <p class="composer-note">AI 可能会犯错，请核对重要信息 · 对话保存在本机</p>
+        </div>
+      </section>
     </div>
+
+    <RenameConversationModal
+      :open="renameTarget !== null"
+      :conversation="renameTarget"
+      :saving="renameSaving"
+      :error-message="renameError"
+      @close="closeRename"
+      @save="saveRename"
+    />
   </div>
 </template>

@@ -8,6 +8,7 @@ const emptyChat: ChatResponse = {
   conversation: {
     id: "default",
     title: "本地对话",
+    titleSource: "auto",
     createdAt: new Date(0).toISOString(),
     updatedAt: new Date(0).toISOString(),
   },
@@ -109,6 +110,7 @@ describe("useChat", () => {
 
     expect(chat.streamState.value).toBe("idle");
     expect(messageRequestBody).toEqual({
+      conversationId: null,
       content: "问候",
       reasoningLevel: "high",
     });

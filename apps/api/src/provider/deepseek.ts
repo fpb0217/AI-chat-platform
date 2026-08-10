@@ -1,5 +1,11 @@
 import {
+  MAX_AUTOMATIC_TITLE_LENGTH,
   REASONING_LEVELS,
+  graphemeCount,
+  hasControlCharacters,
+  normalizeTitleText,
+  takeLastGraphemes,
+  truncateGraphemes,
   type ReasoningLevel,
   type TokenUsage,
 } from "@ai-chat/shared";
@@ -10,6 +16,7 @@ import {
   type ChatGenerationOptions,
   type ChatProvider,
   type ProviderEvent,
+  type TitleGenerationOptions,
 } from "./types.js";
 
 interface DeepSeekChunk {
@@ -30,6 +37,14 @@ interface DeepSeekChunk {
   } | null;
 }
 
+interface DeepSeekTitleResponse {
+  choices?: Array<{
+    message?: {
+      content?: string | null;
+    };
+  }>;
+}
+
 export interface DeepSeekProviderOptions {
   apiKey: string;
   baseUrl: string;
@@ -39,6 +54,9 @@ export interface DeepSeekProviderOptions {
 
 const PRO_REASONING_LEVELS = ["off", "high", "max"] as const;
 const NON_REASONING_LEVELS = ["off"] as const;
+const TITLE_MODEL = "deepseek-v4-flash";
+const TITLE_SYSTEM_PROMPT =
+  "你是会话标题生成器。只输出合法 JSON 对象，且只能包含 title 字段。title 应准确概括最新问答，优先完整保留关键对象、领域和比较关系，建议为 20～40 个字符且最多 48 个字符，不得包含解释、Markdown、引号包装或换行。";
 
 function supportedReasoningLevels(model: string): readonly ReasoningLevel[] {
   if (model === "deepseek-v4-flash") {
@@ -120,6 +138,51 @@ function parseUsage(chunk: DeepSeekChunk): TokenUsage | null {
         ? usage.completion_tokens_details.reasoning_tokens
         : null,
   };
+}
+
+function boundedTitleInput(value: string, maxLength: number): string {
+  const normalized = value.trim();
+  if (graphemeCount(normalized) <= maxLength) {
+    return normalized;
+  }
+  if (maxLength <= 2) {
+    return truncateGraphemes(normalized, maxLength);
+  }
+  const headLength = Math.ceil((maxLength - 1) / 2);
+  const tailLength = maxLength - 1 - headLength;
+  const head = truncateGraphemes(normalized, headLength);
+  const tail = takeLastGraphemes(normalized, tailLength);
+  return `${head}…${tail}`;
+}
+
+function fallbackTitle(question: string): string {
+  return truncateGraphemes(
+    normalizeTitleText(question),
+    MAX_AUTOMATIC_TITLE_LENGTH,
+  );
+}
+
+function parseTitleCandidate(content: string): string | null {
+  if (hasControlCharacters(content)) {
+    return null;
+  }
+  try {
+    const parsed: unknown = JSON.parse(content);
+    if (
+      typeof parsed !== "object" ||
+      parsed === null ||
+      !("title" in parsed) ||
+      typeof parsed.title !== "string"
+    ) {
+      return null;
+    }
+    const normalized = normalizeTitleText(parsed.title);
+    return normalized
+      ? truncateGraphemes(normalized, MAX_AUTOMATIC_TITLE_LENGTH)
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 export class DeepSeekProvider implements ChatProvider {
@@ -257,5 +320,72 @@ export class DeepSeekProvider implements ChatProvider {
       "模型数据流意外结束",
       true,
     );
+  }
+
+  async generateTitle(
+    question: string,
+    answer: string,
+    options: TitleGenerationOptions = {},
+  ): Promise<string> {
+    const fallback = fallbackTitle(question);
+    if (!this.configured) {
+      return fallback;
+    }
+
+    const signal = options.signal;
+    const requestInit: RequestInit = {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.options.apiKey}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({
+        model: TITLE_MODEL,
+        messages: [
+          { role: "system", content: TITLE_SYSTEM_PROMPT },
+          {
+            role: "user",
+            content: JSON.stringify({
+              question: boundedTitleInput(question, 4_000),
+              answer: boundedTitleInput(answer, 6_000),
+            }),
+          },
+        ],
+        thinking: { type: "disabled" },
+        stream: false,
+        response_format: { type: "json_object" },
+        max_tokens: 96,
+      }),
+      ...(signal ? { signal } : {}),
+    };
+
+    let response: Response;
+    try {
+      response = await this.fetchImplementation(this.endpoint, requestInit);
+    } catch (error) {
+      if (signal?.aborted) {
+        throw error;
+      }
+      return fallback;
+    }
+
+    if (!response.ok) {
+      await response.body?.cancel().catch(() => undefined);
+      return fallback;
+    }
+
+    try {
+      const payload = (await response.json()) as DeepSeekTitleResponse;
+      const content = payload.choices?.[0]?.message?.content;
+      return typeof content === "string"
+        ? parseTitleCandidate(content) ?? fallback
+        : fallback;
+    } catch (error) {
+      if (signal?.aborted) {
+        throw error;
+      }
+      return fallback;
+    }
   }
 }

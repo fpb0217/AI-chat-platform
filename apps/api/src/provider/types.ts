@@ -21,6 +21,10 @@ export interface ChatGenerationOptions {
   reasoningLevel: ReasoningLevel;
 }
 
+export interface TitleGenerationOptions {
+  signal?: AbortSignal;
+}
+
 export interface ChatProvider {
   readonly configured: boolean;
   readonly model: string;
@@ -29,6 +33,11 @@ export interface ChatProvider {
     messages: ModelMessage[],
     options: ChatGenerationOptions,
   ): AsyncIterable<ProviderEvent>;
+  generateTitle?(
+    question: string,
+    answer: string,
+    options?: TitleGenerationOptions,
+  ): Promise<string>;
 }
 
 export class ProviderError extends Error {

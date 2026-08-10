@@ -33,6 +33,7 @@ data/
 # Logs and temporary files
 *.log
 *.tmp
+.tmp-*
 .cache/
 
 # Editors and operating systems

@@ -34,6 +34,7 @@ const REASONING_PREFERENCE_KEY = "ai-chat.reasoning-level.v1";
 
 interface UseChatResult {
   messages: Ref<ChatMessage[]>;
+  conversationId: Ref<string | null>;
   loading: Ref<boolean>;
   streamState: Ref<StreamState>;
   isGenerating: Readonly<Ref<boolean>>;
@@ -41,7 +42,8 @@ interface UseChatResult {
   model: Ref<string>;
   reasoningLevels: Ref<ReasoningLevel[]>;
   reasoningLevel: Ref<ReasoningLevel>;
-  loadChat: () => Promise<void>;
+  loadChat: (conversationId?: string | null) => Promise<void>;
+  clearChat: () => void;
   sendMessage: (
     content: string,
     reasoningLevel?: ReasoningLevel,
@@ -49,6 +51,11 @@ interface UseChatResult {
   setReasoningLevel: (level: ReasoningLevel) => void;
   stopGeneration: () => void;
   dismissError: () => void;
+}
+
+export interface UseChatOptions {
+  onConversationCreated?: (conversationId: string) => void;
+  onTurnCompleted?: (conversationId: string, turnId: string) => void | Promise<void>;
 }
 
 function nowIso(): string {
@@ -60,12 +67,13 @@ function optimisticMessage(
   content: string,
   position: number,
   turnId: string,
+  conversationId: string | null,
   reasoningLevel: ReasoningLevel,
 ): ChatMessage {
   const now = nowIso();
   return {
     id: `local-${crypto.randomUUID()}`,
-    conversationId: "default",
+    conversationId: conversationId ?? "",
     turnId,
     position,
     role,
@@ -122,8 +130,24 @@ function normalizeEmptyReasoning(message: ChatMessage): void {
   }
 }
 
-export function useChat(): UseChatResult {
+function notifyTurnCompleted(
+  callback: UseChatOptions["onTurnCompleted"],
+  conversationId: string,
+  turnId: string,
+): void {
+  try {
+    const result = callback?.(conversationId, turnId);
+    if (result) {
+      void Promise.resolve(result).catch(() => undefined);
+    }
+  } catch {
+    // Title refresh is intentionally best effort and must not affect chat.
+  }
+}
+
+export function useChat(options: UseChatOptions = {}): UseChatResult {
   const messages = ref<ChatMessage[]>([]);
+  const conversationId = ref<string | null>(null);
   const loading = ref(true);
   const streamState = ref<StreamState>("idle");
   const errorMessage = ref<string | null>(null);
@@ -134,32 +158,49 @@ export function useChat(): UseChatResult {
   let activeController: AbortController | null = null;
   let activeWriter: TypewriterBuffer | null = null;
   let activeAssistant: ChatMessage | null = null;
+  let loadVersion = 0;
 
-  async function loadChat(): Promise<void> {
+  async function loadChat(
+    targetConversationId: string | null = null,
+  ): Promise<void> {
+    const version = ++loadVersion;
     loading.value = true;
+    messages.value = [];
+    conversationId.value = targetConversationId;
     try {
+      const chatResponsePromise = targetConversationId
+        ? fetch(
+            `/api/conversations/${encodeURIComponent(targetConversationId)}`,
+            { headers: { Accept: "application/json" } },
+          )
+        : null;
       const [chatResponse, healthResponse] = await Promise.all([
-        fetch("/api/chat", {
-          headers: { Accept: "application/json" },
-        }),
+        chatResponsePromise,
         fetch("/api/health", {
           headers: { Accept: "application/json" },
         }),
       ]);
-      if (!chatResponse.ok) {
+      if (version !== loadVersion) {
+        return;
+      }
+      if (chatResponse && !chatResponse.ok) {
         throw new Error(await readApiError(chatResponse));
       }
       if (!healthResponse.ok) {
         throw new Error(await readApiError(healthResponse));
       }
-      const [chat, health] = (await Promise.all([
-        chatResponse.json(),
-        healthResponse.json(),
-      ])) as [ChatResponse, HealthResponse];
+      const health = (await healthResponse.json()) as HealthResponse;
+      const chat = chatResponse
+        ? ((await chatResponse.json()) as ChatResponse)
+        : null;
+      if (version !== loadVersion) {
+        return;
+      }
       const supportedLevels = (
         health.reasoningCapabilities?.levels ?? [DEFAULT_REASONING_LEVEL]
       ).filter(isReasoningLevel);
-      messages.value = chat.messages;
+      messages.value = chat?.messages ?? [];
+      conversationId.value = chat?.conversation.id ?? targetConversationId;
       model.value = health.model;
       reasoningLevels.value =
         supportedLevels.length > 0
@@ -168,11 +209,24 @@ export function useChat(): UseChatResult {
       reasoningLevel.value = readReasoningPreference(reasoningLevels.value);
       errorMessage.value = null;
     } catch (error) {
-      errorMessage.value =
-        error instanceof Error ? error.message : "无法加载本地对话";
+      if (version === loadVersion) {
+        errorMessage.value =
+          error instanceof Error ? error.message : "无法加载本地对话";
+      }
     } finally {
-      loading.value = false;
+      if (version === loadVersion) {
+        loading.value = false;
+      }
     }
+  }
+
+  function clearChat(): void {
+    loadVersion += 1;
+    conversationId.value = null;
+    messages.value = [];
+    loading.value = false;
+    errorMessage.value = null;
+    streamState.value = "idle";
   }
 
   function applyMeta(
@@ -180,6 +234,15 @@ export function useChat(): UseChatResult {
     user: ChatMessage,
     assistant: ChatMessage,
   ): void {
+    if (typeof data.conversationId === "string" && data.conversationId) {
+      const wasEmpty = conversationId.value === null;
+      conversationId.value = data.conversationId;
+      if (wasEmpty) {
+        options.onConversationCreated?.(data.conversationId);
+      }
+      user.conversationId = data.conversationId;
+      assistant.conversationId = data.conversationId;
+    }
     user.id = data.userMessageId;
     user.turnId = data.turnId;
     assistant.id = data.assistantMessageId;
@@ -249,6 +312,10 @@ export function useChat(): UseChatResult {
         assistant.reasoningDurationMs = done.reasoningDurationMs;
       }
       assistant.updatedAt = nowIso();
+      const activeConversationId = conversationId.value;
+      if (activeConversationId) {
+        notifyTurnCompleted(options.onTurnCompleted, activeConversationId, user.turnId);
+      }
       return "terminal";
     }
     if (parsedEvent.event === "error") {
@@ -263,6 +330,10 @@ export function useChat(): UseChatResult {
       }
       assistant.updatedAt = nowIso();
       errorMessage.value = streamError.message;
+      const activeConversationId = conversationId.value;
+      if (activeConversationId) {
+        notifyTurnCompleted(options.onTurnCompleted, activeConversationId, user.turnId);
+      }
       return "terminal";
     }
     return "continue";
@@ -291,6 +362,7 @@ export function useChat(): UseChatResult {
         content,
         highestPosition + 1,
         localTurnId,
+        conversationId.value,
         requestedReasoningLevel,
       ),
     );
@@ -300,6 +372,7 @@ export function useChat(): UseChatResult {
         "",
         highestPosition + 2,
         localTurnId,
+        conversationId.value,
         requestedReasoningLevel,
       ),
     );
@@ -324,6 +397,7 @@ export function useChat(): UseChatResult {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
+          conversationId: conversationId.value,
           content,
           reasoningLevel: requestedReasoningLevel,
         }),
@@ -371,6 +445,9 @@ export function useChat(): UseChatResult {
         assistant.status = "error";
         assistant.errorCode = "UPSTREAM_STREAM_INTERRUPTED";
         errorMessage.value = "流式响应意外结束";
+        if (conversationId.value) {
+          notifyTurnCompleted(options.onTurnCompleted, conversationId.value, user.turnId);
+        }
       }
     } catch (error) {
       if (controller.signal.aborted || isAbortError(error)) {
@@ -378,6 +455,9 @@ export function useChat(): UseChatResult {
         assistant.status = "stopped";
         normalizeEmptyReasoning(assistant);
         assistant.updatedAt = nowIso();
+        if (conversationId.value && assistant.content.length > 0) {
+          notifyTurnCompleted(options.onTurnCompleted, conversationId.value, user.turnId);
+        }
       } else {
         writer.flush();
         if (!receivedMeta) {
@@ -388,6 +468,9 @@ export function useChat(): UseChatResult {
           assistant.status = "error";
           normalizeEmptyReasoning(assistant);
           assistant.errorCode = "UPSTREAM_STREAM_INTERRUPTED";
+          if (conversationId.value) {
+            notifyTurnCompleted(options.onTurnCompleted, conversationId.value, user.turnId);
+          }
         }
         errorMessage.value =
           error instanceof Error ? error.message : "发送消息失败";
@@ -438,6 +521,7 @@ export function useChat(): UseChatResult {
 
   return {
     messages,
+    conversationId,
     loading,
     streamState,
     isGenerating,
@@ -446,6 +530,7 @@ export function useChat(): UseChatResult {
     reasoningLevels,
     reasoningLevel,
     loadChat,
+    clearChat,
     sendMessage,
     setReasoningLevel,
     stopGeneration,

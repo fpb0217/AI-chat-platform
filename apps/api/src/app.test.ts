@@ -1,6 +1,8 @@
 import { resolve } from "node:path";
 import {
+  MAX_AUTOMATIC_TITLE_LENGTH,
   REASONING_LEVELS,
+  truncateGraphemes,
   type ChatResponse,
   type ReasoningLevel,
 } from "@ai-chat/shared";
@@ -26,10 +28,15 @@ class FakeProvider implements ChatProvider {
   public readonly reasoningLevels: readonly ReasoningLevel[];
   public capturedMessages: ModelMessage[] = [];
   public capturedReasoningLevel: ReasoningLevel | null = null;
+  public titleCalls: Array<{ question: string; answer: string }> = [];
 
   public constructor(
     private readonly factory: StreamFactory,
     reasoningLevels: readonly ReasoningLevel[] = REASONING_LEVELS,
+    private readonly titleFactory?: (
+      question: string,
+      answer: string,
+    ) => Promise<string> | string,
   ) {
     this.reasoningLevels = reasoningLevels;
   }
@@ -41,6 +48,14 @@ class FakeProvider implements ChatProvider {
     this.capturedMessages = messages;
     this.capturedReasoningLevel = options.reasoningLevel;
     return this.factory(messages, options);
+  }
+
+  async generateTitle(question: string, answer: string): Promise<string> {
+    this.titleCalls.push({ question, answer });
+    return (
+      this.titleFactory?.(question, answer) ??
+      truncateGraphemes(question, MAX_AUTOMATIC_TITLE_LENGTH)
+    );
   }
 }
 
@@ -177,6 +192,125 @@ describe("chat API", () => {
       { role: "user", content: "打个招呼" },
     ]);
     expect(provider.capturedReasoningLevel).toBe("high");
+  });
+
+  it("creates, isolates, renames, auto-titles, and deletes multiple conversations", async () => {
+    const provider = new FakeProvider(
+      async function* (messages) {
+        yield { type: "delta", text: `回答：${messages.at(-1)?.content ?? ""}` };
+        yield { type: "done", finishReason: "stop", usage: null };
+      },
+      REASONING_LEVELS,
+      async () => "跨会话标题",
+    );
+    const { app, url } = await createTestServer(provider);
+    openApps.push(app);
+
+    const initialList = (await (await fetch(`${url}/api/conversations`)).json()) as {
+      conversations: Array<{ id: string }>;
+    };
+    expect(initialList.conversations).toEqual([]);
+
+    const firstResponse = await fetch(`${url}/api/chat/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        conversationId: null,
+        content: "第一个会话的问题",
+        reasoningLevel: "off",
+      }),
+    });
+    const firstEvents = parseEvents(await firstResponse.text());
+    const firstMeta = firstEvents[0]?.data as { conversationId: string; turnId: string };
+    expect(firstMeta.conversationId).toMatch(/^[0-9a-f-]{36}$/u);
+
+    const secondResponse = await fetch(`${url}/api/chat/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        conversationId: null,
+        content: "第二个会话的问题",
+        reasoningLevel: "off",
+      }),
+    });
+    const secondEvents = parseEvents(await secondResponse.text());
+    const secondMeta = secondEvents[0]?.data as { conversationId: string; turnId: string };
+    expect(secondMeta.conversationId).not.toBe(firstMeta.conversationId);
+    expect(provider.capturedMessages).toEqual([
+      { role: "user", content: "第二个会话的问题" },
+    ]);
+
+    const continueResponse = await fetch(`${url}/api/chat/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        conversationId: firstMeta.conversationId,
+        content: "继续第一个会话",
+        reasoningLevel: "off",
+      }),
+    });
+    expect(continueResponse.status).toBe(200);
+    const continueEvents = parseEvents(await continueResponse.text());
+    const continueMeta = continueEvents[0]?.data as { turnId: string };
+    expect(provider.capturedMessages).toEqual([
+      { role: "user", content: "第一个会话的问题" },
+      { role: "assistant", content: "回答：第一个会话的问题" },
+      { role: "user", content: "继续第一个会话" },
+    ]);
+
+    const titleResponse = await fetch(
+      `${url}/api/conversations/${firstMeta.conversationId}/auto-title`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ turnId: continueMeta.turnId }),
+      },
+    );
+    expect(await titleResponse.json()).toMatchObject({
+      title: "跨会话标题",
+      titleSource: "auto",
+    });
+    const repeatedTitleResponse = await fetch(
+      `${url}/api/conversations/${firstMeta.conversationId}/auto-title`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ turnId: continueMeta.turnId }),
+      },
+    );
+    expect(await repeatedTitleResponse.json()).toMatchObject({
+      title: "跨会话标题",
+    });
+    expect(provider.titleCalls).toHaveLength(1);
+
+    const renameResponse = await fetch(
+      `${url}/api/conversations/${firstMeta.conversationId}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "手动会话" }),
+      },
+    );
+    expect(await renameResponse.json()).toMatchObject({
+      title: "手动会话",
+      titleSource: "manual",
+    });
+
+    const deleteResponse = await fetch(
+      `${url}/api/conversations/${secondMeta.conversationId}`,
+      { method: "DELETE" },
+    );
+    expect(deleteResponse.status).toBe(204);
+    expect(
+      (
+        (await (await fetch(`${url}/api/conversations`)).json()) as {
+          conversations: Array<{ id: string; title: string }>;
+        }
+      ).conversations,
+    ).toMatchObject([{ id: firstMeta.conversationId, title: "手动会话" }]);
+    expect(
+      (await fetch(`${url}/api/conversations/${secondMeta.conversationId}`)).status,
+    ).toBe(404);
   });
 
   it("rejects invalid input before creating a turn", async () => {

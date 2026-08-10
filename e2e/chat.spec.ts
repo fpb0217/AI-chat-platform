@@ -16,7 +16,9 @@ test.describe.serial("local streaming chat", () => {
     await expect(assistant.locator(".reasoning-panel")).toHaveCount(0);
 
     await page.reload();
-    await expect(page.getByText("请演示流式输出", { exact: true })).toBeVisible();
+    await expect(
+      page.getByRole("main").getByText("请演示流式输出", { exact: true }),
+    ).toBeVisible();
     await expect(
       page.getByText("这是一个逐字出现的流式回答。", { exact: true }),
     ).toBeVisible();
@@ -282,5 +284,65 @@ test.describe.serial("local streaming chat", () => {
       () => document.documentElement.scrollWidth > window.innerWidth,
     );
     expect(hasHorizontalOverflow).toBe(false);
+  });
+
+  test("creates two conversations and switches without mixing their messages", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await page.locator(".topbar-new-button").click();
+    await page.getByLabel("输入消息").fill("会话一Z9Q");
+    await page.getByRole("button", { name: "发送消息" }).click();
+    await expect(page.getByRole("main")).toContainText("会话一Z9Q");
+
+    await page.locator(".topbar-new-button").click();
+    await expect(page.getByText("现在，想聊点什么？")).toBeVisible();
+    await page.getByLabel("输入消息").fill("会话二Z9Q");
+    await page.getByRole("button", { name: "发送消息" }).click();
+    await expect(page.getByRole("main")).toContainText("会话二Z9Q");
+
+    const firstConversation = page
+      .locator(".conversation-item")
+      .filter({ hasText: "会话一Z9Q" });
+    await expect(firstConversation).toBeVisible();
+    await firstConversation.locator(".conversation-select").click();
+    await expect(page.getByRole("main")).toContainText("会话一Z9Q");
+    await expect(page.getByRole("main")).not.toContainText("会话二Z9Q");
+  });
+
+  test("renames a conversation and requires a second click before deletion", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await page.locator(".topbar-new-button").click();
+    await page.getByLabel("输入消息").fill("删会话Z9Q");
+    await page.getByRole("button", { name: "发送消息" }).click();
+    await expect(page.getByRole("main")).toContainText("删会话Z9Q");
+
+    const conversation = page
+      .locator(".conversation-item")
+      .filter({ hasText: "删会话Z9Q" });
+    await expect(conversation).toBeVisible();
+    await conversation.getByRole("button", { name: /操作：删会话Z9Q/u }).click();
+    await conversation.getByRole("menuitem", { name: "重命名" }).click();
+    await expect(page.getByRole("dialog")).toBeVisible();
+    const titleInput = page.getByLabel("会话标题");
+    await titleInput.fill("手动Z9Q");
+    await page.getByRole("button", { name: "保存", exact: true }).click();
+    await expect(
+      page.locator(".conversation-item").filter({ hasText: "手动Z9Q" }),
+    ).toBeVisible();
+
+    const renamed = page
+      .locator(".conversation-item")
+      .filter({ hasText: "手动Z9Q" });
+    await renamed.getByRole("button", { name: /操作：手动Z9Q/u }).click();
+    await renamed.getByRole("menuitem", { name: "删除" }).click();
+    await expect(renamed.getByRole("menuitem", { name: "确认删除" })).toBeVisible();
+    await expect(renamed).toBeVisible();
+    await renamed.getByRole("menuitem", { name: "确认删除" }).click();
+    await expect(
+      page.locator(".conversation-item").filter({ hasText: "手动Z9Q" }),
+    ).toHaveCount(0);
   });
 });
