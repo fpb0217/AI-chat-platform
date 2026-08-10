@@ -277,6 +277,9 @@ test.describe.serial("local streaming chat", () => {
     await page.goto("/");
     await expect(page.getByLabel("输入消息")).toBeVisible();
     await expect(page.getByText("V4 Flash", { exact: true })).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "切换到深色模式" }),
+    ).toBeVisible();
     await page.getByRole("button", { name: /推理强度：关闭/u }).click();
     await expect(page.getByRole("listbox", { name: "推理强度" })).toBeVisible();
 
@@ -284,6 +287,42 @@ test.describe.serial("local streaming chat", () => {
       () => document.documentElement.scrollWidth > window.innerWidth,
     );
     expect(hasHorizontalOverflow).toBe(false);
+  });
+
+  test("switches themes with keyboard controls and restores the preference", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+
+    const themeToggle = page.getByRole("button", { name: "切换到深色模式" });
+    await themeToggle.press("Enter");
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+    await expect(
+      page.getByRole("button", { name: "切换到浅色模式" }),
+    ).toBeVisible();
+    await expect
+      .poll(() =>
+        page.evaluate(() => localStorage.getItem("ai-chat.theme.v1")),
+      )
+      .toBe("dark");
+    await expect(page.locator("html")).toHaveCSS("color-scheme", "dark");
+
+    await page.reload();
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+    const darkThemeToggle = page.getByRole("button", {
+      name: "切换到浅色模式",
+    });
+    await darkThemeToggle.press("Space");
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+    await page.reload();
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+
+    await page.evaluate(() => {
+      localStorage.setItem("ai-chat.theme.v1", "unsupported");
+    });
+    await page.reload();
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
   });
 
   test("creates two conversations and switches without mixing their messages", async ({

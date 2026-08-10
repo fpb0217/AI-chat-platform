@@ -15,10 +15,13 @@ import ConversationSidebar from "./components/ConversationSidebar.vue";
 import EmptyState from "./components/EmptyState.vue";
 import ReasoningSelector from "./components/ReasoningSelector.vue";
 import RenameConversationModal from "./components/RenameConversationModal.vue";
+import ThemeToggle from "./components/ThemeToggle.vue";
 import { useChat } from "./composables/use_chat";
 import { useConversations } from "./composables/use_conversations";
+import { useTheme } from "./composables/use_theme";
 
 const conversationStore = useConversations();
+const { theme, toggleTheme } = useTheme();
 const chat = useChat({
   onConversationCreated: (conversationId) => {
     conversationStore.ensureConversation(conversationId);
@@ -334,6 +337,7 @@ onBeforeUnmount(() => {
               <span class="status-dot" :class="{ active: isGenerating }" />
               {{ statusText }}
             </div>
+            <ThemeToggle :theme="theme" @toggle="toggleTheme" />
             <ReasoningSelector
               :model="model"
               :model-value="reasoningLevel"

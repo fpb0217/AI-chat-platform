@@ -9,6 +9,26 @@
     />
     <meta name="theme-color" content="#f7f7fb" />
     <title>流光 · 本地 AI 对话</title>
+    <script>
+      (() => {
+        const key = "ai-chat.theme.v1";
+        let theme = "light";
+        try {
+          const stored = window.localStorage.getItem(key);
+          if (stored === "light" || stored === "dark") {
+            theme = stored;
+          }
+        } catch {
+          // Use the fixed light default when browser storage is unavailable.
+        }
+
+        document.documentElement.dataset.theme = theme;
+        document.documentElement.style.colorScheme = theme;
+        document
+          .querySelector('meta[name="theme-color"]')
+          ?.setAttribute("content", theme === "dark" ? "#101016" : "#f7f7fb");
+      })();
+    </script>
   </head>
   <body>
     <div id="app"></div>
