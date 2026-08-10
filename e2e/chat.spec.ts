@@ -381,6 +381,28 @@ test.describe.serial("local streaming chat", () => {
     await expect(page.getByRole("main")).not.toContainText("会话二Z9Q");
   });
 
+  test("updates the sidebar title after each completed turn", async ({ page }) => {
+    await page.goto("/");
+    await page.locator(".topbar-new-button").click();
+
+    const composer = page.getByLabel("输入消息");
+    const activeConversation = page.locator(".conversation-item-active");
+    const firstQuestion = "标题更新A1Z9Q";
+    const secondQuestion = "标题更新A2Z9Q";
+
+    await composer.fill(firstQuestion);
+    await page.getByRole("button", { name: "发送消息" }).click();
+    await expect(activeConversation.locator(".conversation-title")).toHaveText(
+      firstQuestion,
+    );
+
+    await composer.fill(secondQuestion);
+    await page.getByRole("button", { name: "发送消息" }).click();
+    await expect(activeConversation.locator(".conversation-title")).toHaveText(
+      secondQuestion,
+    );
+  });
+
   test("renames a conversation and requires a second click before deletion", async ({
     page,
   }) => {

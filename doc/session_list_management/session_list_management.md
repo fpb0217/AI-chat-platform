@@ -29,6 +29,10 @@ source_plan: ../../plan/session_list_management/session_list_management.md
 - 当前存在生成任务时禁用切换、新建和删除，避免界面状态与服务端流式写入错位。
 - 每轮可用回答结束后异步生成自动标题，标题失败不会影响聊天回答、消息持久化或下一轮发送。
 
+## 后续修复
+
+- 2026-08-10：修复连续提问时自动标题响应乱序导致侧栏标题回退的问题。前端现在按会话记录最新完成轮次，仅接受该轮次对应的标题响应；较早轮次即使稍后返回，也不能覆盖更新后的最新标题。
+
 ## 使用方式
 
 1. 启动应用后，左侧列表自动加载最近会话；移动端通过顶部菜单按钮打开列表。
@@ -94,6 +98,7 @@ Drizzle 迁移 `apps/api/drizzle/0003_dusty_wallow.sql` 为 `conversations` 增�
 - 列表请求使用版本号防止快速切换时旧响应覆盖新状态。
 - `useChat` 在发送请求中携带活动会话 ID，并从 SSE `meta` 接收新建会话 ID。
 - 自动标题请求独立于主聊天 SSE；回答结束即可恢复输入，不等待标题生成。
+- 自动标题结果按会话的最新完成 turn 写入侧栏，异步响应乱序时旧 turn 的结果会被忽略。
 - 条目菜单支持点击外部和 Escape 关闭；重命名模态框支持自动聚焦、Enter 保存和 Escape 取消。
 - 手动标题最多 60 个 Unicode 字素；侧栏显示宽度与存储上限分离，超宽内容单行省略但保留完整可访问文本。
 
@@ -106,6 +111,7 @@ Drizzle 迁移 `apps/api/drizzle/0003_dusty_wallow.sql` 为 `conversations` 增�
 - 生产构建：shared、Vue 前端和 Fastify API 全部通过。
 - `git diff --check`：通过。
 - 用户真实会话触发了 DeepSeek 自动标题链路；由此发现并修复旧 15 字素上限，示例的 31 字素期望标题已加入 Provider 与共享契约测试。
+- 后续标题竞态修复：新增乱序响应单元测试与同一会话连续两轮标题更新的 Playwright 回归；全仓 Vitest、ESLint、TypeScript、Web 生产构建及对应 E2E 用例均通过。
 
 ## 安全与隐私
 

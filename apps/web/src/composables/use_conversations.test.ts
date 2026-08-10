@@ -89,6 +89,50 @@ describe("useConversations", () => {
     mounted.wrapper.unmount();
   });
 
+  it("keeps the latest automatic title when responses finish out of order", async () => {
+    const firstTitle: ConversationSummary = {
+      ...first,
+      title: "自动标题 A1",
+      titleSource: "auto",
+    };
+    const secondTitle: ConversationSummary = {
+      ...first,
+      title: "自动标题 A2",
+      titleSource: "auto",
+    };
+    let resolveFirstResponse: ((response: Response) => void) | undefined;
+    let titleRequestCount = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      if (!String(input).includes("auto-title")) {
+        return Response.json({ conversations: [] } satisfies ConversationListResponse);
+      }
+      titleRequestCount += 1;
+      if (titleRequestCount === 1) {
+        return new Promise<Response>((resolve) => {
+          resolveFirstResponse = resolve;
+        });
+      }
+      return Response.json(secondTitle);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const mounted = mountConversations();
+
+    mounted.conversations.ensureConversation(first.id);
+    const firstRequest = mounted.conversations.requestAutomaticTitle(first.id, "turn-1");
+    const secondRequest = mounted.conversations.requestAutomaticTitle(first.id, "turn-2");
+    await secondRequest;
+    expect(mounted.conversations.conversations.value).toMatchObject([
+      { id: first.id, title: "自动标题 A2" },
+    ]);
+
+    resolveFirstResponse?.(Response.json(firstTitle));
+    await firstRequest;
+    expect(mounted.conversations.conversations.value).toMatchObject([
+      { id: first.id, title: "自动标题 A2" },
+    ]);
+    mounted.wrapper.unmount();
+  });
+
   it("removes the active conversation and returns the next fallback", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       if (String(input).endsWith("/second")) {

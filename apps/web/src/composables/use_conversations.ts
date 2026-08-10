@@ -84,6 +84,7 @@ export function useConversations(): UseConversationsResult {
   const loading = ref(true);
   const errorMessage = ref<string | null>(null);
   const automaticTitleRequests = new Set<string>();
+  const latestAutomaticTitleTurnByConversation = new Map<string, string>();
   let requestVersion = 0;
 
   async function fetchList(): Promise<ConversationSummary[]> {
@@ -234,6 +235,7 @@ export function useConversations(): UseConversationsResult {
       return;
     }
     automaticTitleRequests.add(requestKey);
+    latestAutomaticTitleTurnByConversation.set(conversationId, turnId);
     try {
       const response = await fetch(
         `/api/conversations/${encodeURIComponent(conversationId)}/auto-title`,
@@ -250,9 +252,14 @@ export function useConversations(): UseConversationsResult {
         return;
       }
       const summary = (await response.json()) as ConversationSummary;
-      conversations.value = replaceSummary(conversations.value, summary);
+      if (latestAutomaticTitleTurnByConversation.get(conversationId) === turnId) {
+        conversations.value = replaceSummary(conversations.value, summary);
+      }
     } finally {
       automaticTitleRequests.delete(requestKey);
+      if (latestAutomaticTitleTurnByConversation.get(conversationId) === turnId) {
+        latestAutomaticTitleTurnByConversation.delete(conversationId);
+      }
     }
   }
 
