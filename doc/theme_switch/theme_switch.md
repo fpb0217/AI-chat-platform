@@ -26,6 +26,11 @@ source_plan: ../../plan/theme_switch/theme_switch.md
 - 全局样式使用浅色语义变量及 `:root[data-theme="dark"]` 覆盖值，统一驱动背景、表面、文本、边框、强调色、危险色、焦点环、阴影、遮罩和滚动条。
 - 主题切换不修改后端、数据库或共享消息契约，也不重置会话、消息、草稿、推理强度、生成状态和滚动跟随状态。
 
+## 后续修复
+
+- 2026-08-10：修复从深色切回浅色后，会话操作菜单仍保留深色表面的样式。浅色主题下的 `--color-surface-menu` 和悬停色现分别使用白色与浅色表面色；深色主题继续保留独立的深色覆盖值。
+- `e2e/chat.spec.ts` 新增回归用例：完成深色到浅色切换后，验证会话菜单和重命名模态框均使用浅色表面。
+
 ## 使用方式
 
 1. 启动应用后，首次访问默认显示浅色主题。
@@ -67,7 +72,7 @@ source_plan: ../../plan/theme_switch/theme_switch.md
 - `apps/web/src/App.vue`：初始化主题状态并接入切换控件。
 - `apps/web/src/style.css`：浅色语义变量、深色变量覆盖和响应式布局。
 - `apps/web/src/composables/use_theme.test.ts`、`ThemeToggle.test.ts`：状态容错、DOM 同步和组件行为测试。
-- `e2e/chat.spec.ts`：键盘切换、刷新恢复、非法值回退和移动端布局回归。
+- `e2e/chat.spec.ts`：键盘切换、刷新恢复、非法值回退、深色切回浅色后的浮层配色和移动端布局回归。
 
 ## 验证结果
 
@@ -77,6 +82,7 @@ source_plan: ../../plan/theme_switch/theme_switch.md
 - Playwright：完整 13 项通过；主题用例覆盖默认浅色、Enter/Space 双向切换、localStorage 持久化、刷新恢复、`color-scheme` 同步和非法值回退，移动端用例验证切换按钮可见且无横向溢出。
 - 生产构建：shared、Vue 前端和 Fastify API 全部通过。
 - `git diff --check`：通过。
+- 后续菜单配色修复：`pnpm lint`、`pnpm typecheck`、Web 生产构建及对应 Playwright 回归用例均通过。
 
 ## 安全与隐私
 

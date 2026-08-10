@@ -325,6 +325,34 @@ test.describe.serial("local streaming chat", () => {
     await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
   });
 
+  test("applies the light palette to overlays after switching back from dark", async ({
+    page,
+  }) => {
+    await page.goto("/");
+
+    const themeToggle = page.locator(".theme-toggle");
+    await themeToggle.click();
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+    await themeToggle.click();
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+
+    await page.locator(".conversation-menu-trigger").first().click();
+    const conversationMenu = page.locator(".conversation-menu");
+    await expect(conversationMenu).toBeVisible();
+    await expect(conversationMenu).toHaveCSS(
+      "background-color",
+      "rgb(255, 255, 255)",
+    );
+
+    await conversationMenu.getByRole("menuitem").first().click();
+    const renameDialog = page.getByRole("dialog");
+    await expect(renameDialog).toBeVisible();
+    await expect(renameDialog).toHaveCSS(
+      "background-color",
+      "rgb(255, 255, 255)",
+    );
+  });
+
   test("creates two conversations and switches without mixing their messages", async ({
     page,
   }) => {
