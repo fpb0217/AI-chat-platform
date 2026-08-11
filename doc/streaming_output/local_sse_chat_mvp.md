@@ -102,7 +102,7 @@ SQLite 启用 WAL 和外键约束。消息状态包括 `streaming`、`completed`
 
 - Enter 发送，Shift+Enter 换行；输入框自动增高，最大输入长度为 20,000 字符。
 - 打字机以约 48 graphemes/s 起步，积压时最高提升至约 240/s；服务端结束后在约 300ms 内排空缓冲。
-- Markdown 支持 GFM、代码高亮和代码复制，并通过 DOMPurify 清洗 HTML。
+- Markdown 支持 GFM、代码高亮和代码复制，兼容加粗内容以中文引号等标点开头或结尾的模型输出，并通过 DOMPurify 清洗 HTML。
 - 用户接近底部时根据内容实际布局变化持续跟随，包括正在渲染的代码块和思考面板折叠后的最终回答。用户操作使底部距离增加时会优先停止抢滚动并显示“回到底部”，即使仍在距底部 96px 内也不会被新内容拉回；内容收缩仅钳制滚动位置且底部距离未增加时继续跟随。流式输出本身始终继续进行。
 - 停止生成时排空已接收的显示缓冲、标记“已停止”，刷新后可从 SQLite 恢复部分回答。
 
@@ -120,6 +120,7 @@ SQLite 启用 WAL 和外键约束。消息状态包括 `streaming`、`completed`
 
 - [流式 Markdown 代码块自动滚动中断](../fixes/streaming_markdown_code_block_auto_scroll.md)：修复 Markdown 节流渲染、代码块布局增长和滚动状态判断之间的竞态，并补充用户上滚立即暂停跟随且不打断输出的后续优化。
 - [思考面板折叠后最终回答自动滚动中断](../fixes/reasoning_panel_collapse_auto_scroll.md)：修复 answer 阶段内容收缩导致的滚动位置钳制被误判为用户上滚的问题。
+- [Markdown 标点边界加粗解析异常](../fixes/markdown_strong_emphasis_punctuation_boundary.md)：兼容模型在中文正文中使用 `**“重点”**` 时触发的 CommonMark 标点边界限制。
 
 ## 后续功能
 

@@ -10,3 +10,4 @@
 | --- | --- | --- |
 | 流式 Markdown 代码块导致自动滚动中断 | [流式 Markdown 代码块自动滚动中断](streaming_markdown_code_block_auto_scroll.md) | 2026-08-07 |
 | 思考面板折叠后最终回答自动滚动中断 | [思考面板折叠后最终回答自动滚动中断](reasoning_panel_collapse_auto_scroll.md) | 2026-08-08 |
+| Markdown 标点边界加粗解析异常 | [Markdown 标点边界加粗解析异常](markdown_strong_emphasis_punctuation_boundary.md) | 2026-08-11 |
