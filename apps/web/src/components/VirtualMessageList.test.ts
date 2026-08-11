@@ -14,6 +14,7 @@ const virtualizerMock = vi.hoisted(() => ({
   options: undefined as { value: { count: number; getItemKey: (index: number) => string } } | undefined,
   measureElement: vi.fn(),
   measure: vi.fn(),
+  scrollToIndex: vi.fn(),
 }));
 
 vi.mock("@tanstack/vue-virtual", () => ({
@@ -36,6 +37,7 @@ vi.mock("@tanstack/vue-virtual", () => ({
         getTotalSize: () => (options?.value.count ?? 0) * 100,
         measureElement: virtualizerMock.measureElement,
         measure: virtualizerMock.measure,
+        scrollToIndex: virtualizerMock.scrollToIndex,
       },
     };
   },
@@ -129,5 +131,21 @@ describe("VirtualMessageList", () => {
       estimateMessageSize(short),
     );
     expect(BOTTOM_THRESHOLD).toBe(96);
+  });
+
+  it("navigates to a user query through the virtualizer", async () => {
+    virtualizerMock.scrollToIndex.mockClear();
+    const wrapper = mountList(createLongConversation(12));
+    await nextTick();
+
+    await wrapper.find('[data-query-index="2"]').trigger("click");
+    await nextTick();
+
+    expect(virtualizerMock.scrollToIndex).toHaveBeenCalledWith(4, {
+      align: "start",
+      behavior: "auto",
+    });
+    expect(wrapper.emitted("follow-change")).toContainEqual([false]);
+    wrapper.unmount();
   });
 });

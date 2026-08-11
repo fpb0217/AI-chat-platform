@@ -340,9 +340,8 @@ test.describe.serial("local streaming chat", () => {
     await expect(page.getByRole("button", { name: "停止生成" })).toBeVisible();
     await expect(assistant).not.toContainText("代码块生成完毕。");
 
-    await scrollArea.evaluate((element) => {
-      element.scrollTop -= 48;
-    });
+    await scrollArea.hover();
+    await page.mouse.wheel(0, -160);
 
     await expect(page.getByRole("button", { name: "回到底部" })).toBeVisible();
     await expect(assistant).toContainText("代码块生成完毕。");

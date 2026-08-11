@@ -17,6 +17,11 @@ import type {
   StreamState,
 } from "../composables/use_chat";
 import ChatMessageRow from "./ChatMessage.vue";
+import QueryScrollNavigator from "./QueryScrollNavigator.vue";
+import {
+  activeQueryIndexForMessage,
+  createQueryNavigationItems,
+} from "./query_scroll_navigator";
 import {
   BOTTOM_THRESHOLD,
   estimateMessageSize,
@@ -26,6 +31,7 @@ import {
 
 interface VirtualMessageListExpose {
   scrollToBottom: (behavior?: ScrollBehavior) => void;
+  scrollToMessage: (index: number) => void;
 }
 
 const props = withDefaults(
@@ -47,6 +53,7 @@ const emit = defineEmits<{
 
 const scrollElement = ref<HTMLElement | null>(null);
 const followOutput = ref(true);
+const activeMessageIndex = ref<number | null>(null);
 const reasoningOpenStates = ref(new Map<string, boolean>());
 const newMessageKeys = ref(new Set<string>());
 const rowElements = new Map<string, HTMLElement>();
@@ -57,6 +64,9 @@ let previousScrollTop = 0;
 let previousMaxScrollTop = 0;
 let lastTotalSize = 0;
 let followFrame: number | null = null;
+let navigationSyncFrame: number | null = null;
+let pendingFollowReposition = false;
+let userScrollIntentUntil = 0;
 let requestedFollowBehavior: ScrollBehavior = "auto";
 
 function setFollowOutput(following: boolean): void {
@@ -95,6 +105,7 @@ function scrollToBottomNow(behavior: ScrollBehavior): void {
     element.scrollTop = target;
   }
   updateScrollBaseline(element);
+  pendingFollowReposition = false;
 }
 
 function requestFollow(behavior: ScrollBehavior = "auto"): void {
@@ -114,6 +125,51 @@ function requestFollow(behavior: ScrollBehavior = "auto"): void {
   });
 }
 
+function syncActiveMessageIndex(): void {
+  const element = scrollElement.value;
+  if (!element || props.messages.length === 0) {
+    activeMessageIndex.value = null;
+    return;
+  }
+
+  const activationOffset = Math.min(
+    72,
+    Math.max(1, Math.round(element.clientHeight * 0.16)),
+  );
+  const readingOffset = Math.min(
+    getMaxScrollTop(element),
+    element.scrollTop + activationOffset,
+  );
+  const virtualItems = virtualizer.value.getVirtualItems();
+  const visibleItem = virtualItems.find(
+    (item) => item.end > readingOffset,
+  );
+
+  activeMessageIndex.value =
+    visibleItem?.index ??
+    virtualItems.at(-1)?.index ??
+    Math.max(0, props.messages.length - 1);
+}
+
+function requestNavigationSync(): void {
+  if (navigationSyncFrame !== null) {
+    return;
+  }
+
+  navigationSyncFrame = window.requestAnimationFrame(() => {
+    navigationSyncFrame = null;
+    syncActiveMessageIndex();
+  });
+}
+
+function recordUserScrollIntent(): void {
+  userScrollIntentUntil = performance.now() + 600;
+}
+
+function hasUserScrollIntent(): boolean {
+  return performance.now() <= userScrollIntentUntil;
+}
+
 function handleScroll(): void {
   const element = scrollElement.value;
   if (!element) {
@@ -131,8 +187,15 @@ function handleScroll(): void {
   const movedWithShrinkingContent =
     currentMaxScrollTop < previousMaxScrollTop &&
     distance <= previousDistance + 1;
+  const movedDuringFollowReposition =
+    pendingFollowReposition && distance <= previousDistance + 1;
 
-  if (movedUp && !movedWithShrinkingContent) {
+  if (
+    movedUp &&
+    !movedWithShrinkingContent &&
+    !movedDuringFollowReposition &&
+    hasUserScrollIntent()
+  ) {
     setFollowOutput(false);
   } else if (distance <= BOTTOM_THRESHOLD) {
     setFollowOutput(true);
@@ -140,6 +203,8 @@ function handleScroll(): void {
 
   previousScrollTop = currentScrollTop;
   previousMaxScrollTop = currentMaxScrollTop;
+  syncActiveMessageIndex();
+  requestNavigationSync();
 }
 
 function setRowElement(
@@ -214,8 +279,12 @@ function resetSessionState(): void {
   previousScrollTop = 0;
   previousMaxScrollTop = 0;
   lastTotalSize = 0;
+  pendingFollowReposition = false;
+  userScrollIntentUntil = 0;
+  activeMessageIndex.value = null;
   virtualizer.value.measure();
   syncMessageKeys();
+  requestNavigationSync();
 }
 
 function handleVirtualizerChange(
@@ -226,8 +295,10 @@ function handleVirtualizerChange(
   const sizeChanged = nextTotalSize !== lastTotalSize;
   lastTotalSize = nextTotalSize;
   if (sizeChanged && followOutput.value) {
+    pendingFollowReposition = true;
     requestFollow("auto");
   }
+  requestNavigationSync();
 }
 
 function handleReasoningOpenChange(renderKey: string, open: boolean): void {
@@ -282,6 +353,15 @@ const virtualizer = useVirtualizer<HTMLElement, HTMLElement>(
 );
 const virtualItems = computed(() => virtualizer.value.getVirtualItems());
 const totalSize = computed(() => virtualizer.value.getTotalSize());
+const queryNavigationItems = computed(() =>
+  createQueryNavigationItems(props.messages),
+);
+const activeQueryIndex = computed(() =>
+  activeQueryIndexForMessage(
+    queryNavigationItems.value,
+    activeMessageIndex.value,
+  ),
+);
 const liveAnnouncement = computed(() => {
   if (props.streamState === "reasoning") {
     return "正在思考";
@@ -312,6 +392,31 @@ function scrollToBottom(behavior: ScrollBehavior = "smooth"): void {
   scrollToBottomNow(behavior);
 }
 
+function scrollToMessage(index: number): void {
+  if (index < 0 || index >= props.messages.length) {
+    return;
+  }
+
+  setFollowOutput(false);
+  virtualizer.value.scrollToIndex(index, {
+    align: "start",
+    behavior: "auto",
+  });
+  void nextTick(() => {
+    measureMountedRows();
+    virtualizer.value.scrollToIndex(index, {
+      align: "start",
+      behavior: "auto",
+    });
+    const element = scrollElement.value;
+    if (element) {
+      updateScrollBaseline(element);
+    }
+    syncActiveMessageIndex();
+    requestNavigationSync();
+  });
+}
+
 watch(
   () => props.conversationKey,
   () => {
@@ -327,6 +432,7 @@ watch(
     if (props.messages.length > 0 && followOutput.value) {
       requestFollow("auto");
     }
+    requestNavigationSync();
   },
   { immediate: true, flush: "post" },
 );
@@ -346,6 +452,7 @@ onMounted(() => {
     if (props.messages.length > 0) {
       requestFollow("auto");
     }
+    requestNavigationSync();
   });
 });
 
@@ -353,79 +460,95 @@ onBeforeUnmount(() => {
   if (followFrame !== null) {
     window.cancelAnimationFrame(followFrame);
   }
+  if (navigationSyncFrame !== null) {
+    window.cancelAnimationFrame(navigationSyncFrame);
+  }
 });
 
-defineExpose<VirtualMessageListExpose>({ scrollToBottom });
+defineExpose<VirtualMessageListExpose>({ scrollToBottom, scrollToMessage });
 </script>
 
 <template>
-  <main
-    ref="scrollElement"
-    class="conversation-scroll"
-    :data-message-count="messages.length"
-    :data-virtual-total-size="Math.round(totalSize)"
-    @scroll="handleScroll"
-  >
-    <div class="conversation-column">
-      <div
-        v-if="loading"
-        class="loading-state"
-        aria-label="正在加载对话"
-      >
-        <span />
-        <span />
-        <span />
-      </div>
-      <div
-        v-else-if="messages.length === 0"
-        class="empty-state-host"
-      >
-        <slot name="empty" />
-      </div>
-      <div
-        v-else
-        class="message-list"
-        role="list"
-        :aria-label="`对话消息，共 ${messages.length} 条`"
-        :aria-setsize="messages.length"
-        :style="{ height: `${Math.max(0, totalSize)}px` }"
-      >
+  <div class="conversation-region">
+    <main
+      ref="scrollElement"
+      class="conversation-scroll"
+      :data-message-count="messages.length"
+      :data-virtual-total-size="Math.round(totalSize)"
+      @scroll="handleScroll"
+      @wheel="recordUserScrollIntent"
+      @pointerdown="recordUserScrollIntent"
+      @touchstart="recordUserScrollIntent"
+    >
+      <div class="conversation-column">
         <div
-          v-for="virtualRow in virtualItems"
-          :key="String(virtualRow.key)"
-          :ref="
-            (element) =>
-              setRowElement(
-                element,
-                String(virtualRow.key),
-              )
-          "
-          class="virtual-message-row"
-          :data-index="virtualRow.index"
-          :data-virtual-index="virtualRow.index"
-          :data-render-key="String(virtualRow.key)"
-          :style="{ transform: `translateY(${virtualRow.start}px)` }"
+          v-if="loading"
+          class="loading-state"
+          aria-label="正在加载对话"
         >
-          <ChatMessageRow
-            :message="messageAt(virtualRow.index)"
-            :reasoning-active="isReasoningActive(messageAt(virtualRow.index))"
-            :reasoning-open="reasoningOpenForMessage(virtualRow.index)"
-            :reasoning-open-controlled="true"
-            :animate="newMessageKeys.has(messageAt(virtualRow.index).renderKey)"
-            :virtual-index="virtualRow.index"
-            :message-count="messages.length"
-            @reasoning-open-change="
-              handleReasoningOpenChange(
-                messageAt(virtualRow.index).renderKey,
-                $event,
-              )
+          <span />
+          <span />
+          <span />
+        </div>
+        <div
+          v-else-if="messages.length === 0"
+          class="empty-state-host"
+        >
+          <slot name="empty" />
+        </div>
+        <div
+          v-else
+          class="message-list"
+          role="list"
+          :aria-label="`对话消息，共 ${messages.length} 条`"
+          :aria-setsize="messages.length"
+          :style="{ height: `${Math.max(0, totalSize)}px` }"
+        >
+          <div
+            v-for="virtualRow in virtualItems"
+            :key="String(virtualRow.key)"
+            :ref="
+              (element) =>
+                setRowElement(
+                  element,
+                  String(virtualRow.key),
+                )
             "
-          />
+            class="virtual-message-row"
+            :data-index="virtualRow.index"
+            :data-virtual-index="virtualRow.index"
+            :data-render-key="String(virtualRow.key)"
+            :style="{ transform: `translateY(${virtualRow.start}px)` }"
+          >
+            <ChatMessageRow
+              :message="messageAt(virtualRow.index)"
+              :reasoning-active="isReasoningActive(messageAt(virtualRow.index))"
+              :reasoning-open="reasoningOpenForMessage(virtualRow.index)"
+              :reasoning-open-controlled="true"
+              :animate="newMessageKeys.has(messageAt(virtualRow.index).renderKey)"
+              :virtual-index="virtualRow.index"
+              :message-count="messages.length"
+              @reasoning-open-change="
+                handleReasoningOpenChange(
+                  messageAt(virtualRow.index).renderKey,
+                  $event,
+                )
+              "
+            />
+          </div>
         </div>
       </div>
-    </div>
-    <div class="sr-only" aria-live="polite" aria-atomic="true">
-      {{ liveAnnouncement }}
-    </div>
-  </main>
+      <div class="sr-only" aria-live="polite" aria-atomic="true">
+        {{ liveAnnouncement }}
+      </div>
+    </main>
+
+    <QueryScrollNavigator
+      :items="queryNavigationItems"
+      :active-index="activeQueryIndex"
+      :stream-state="streamState"
+      :navigation-key="conversationKey"
+      @navigate="scrollToMessage"
+    />
+  </div>
 </template>
