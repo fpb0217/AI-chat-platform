@@ -64,30 +64,37 @@ watch(
       @input="update"
       @keydown="handleKeydown"
     />
-    <span v-if="modelValue.length > 18_000" class="character-count">
-      {{ modelValue.length.toLocaleString() }} / {{ MAX_MESSAGE_LENGTH.toLocaleString() }}
-    </span>
-    <button
-      v-if="generating"
-      type="button"
-      class="composer-action stop-action button-subtle"
-      aria-label="停止生成"
-      title="停止生成"
-      @click="emit('stop')"
-    >
-      <Square :size="15" fill="currentColor" />
-    </button>
-    <button
-      v-else
-      type="button"
-      class="composer-action send-action button-primary"
-      :disabled="!modelValue.trim()"
-      aria-label="发送消息"
-      title="发送消息"
-      @click="emit('send')"
-    >
-      <ArrowUp :size="19" :stroke-width="2.4" />
-    </button>
+    <div class="composer-footer">
+      <div class="composer-controls">
+        <slot name="controls" />
+      </div>
+      <div class="composer-actions">
+        <span v-if="modelValue.length > 18_000" class="character-count">
+          {{ modelValue.length.toLocaleString() }} / {{ MAX_MESSAGE_LENGTH.toLocaleString() }}
+        </span>
+        <button
+          v-if="generating"
+          type="button"
+          class="composer-action stop-action button-subtle"
+          aria-label="停止生成"
+          title="停止生成"
+          @click="emit('stop')"
+        >
+          <Square :size="15" fill="currentColor" />
+        </button>
+        <button
+          v-else
+          type="button"
+          class="composer-action send-action button-primary"
+          :disabled="!modelValue.trim()"
+          aria-label="发送消息"
+          title="发送消息"
+          @click="emit('send')"
+        >
+          <ArrowUp :size="18" :stroke-width="2.4" />
+        </button>
+      </div>
+    </div>
   </div>
 </template>
 

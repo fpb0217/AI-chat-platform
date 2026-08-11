@@ -112,10 +112,7 @@ onBeforeUnmount(() => {
     aria-label="会话列表"
   >
     <div class="sidebar-heading">
-      <div>
-        <p class="sidebar-eyebrow">CONVERSATIONS</p>
-        <h2>会话</h2>
-      </div>
+      <h2>会话</h2>
       <button
         class="sidebar-close"
         type="button"

@@ -90,7 +90,7 @@ function handleKeydown(event: KeyboardEvent): void {
       >
         <div class="rename-modal-header">
           <div>
-            <p class="sidebar-eyebrow">EDIT CONVERSATION</p>
+            <p class="rename-modal-eyebrow">EDIT CONVERSATION</p>
             <h2 id="rename-modal-title">重命名会话</h2>
           </div>
           <button type="button" aria-label="关闭重命名窗口" @click="emit('close')">

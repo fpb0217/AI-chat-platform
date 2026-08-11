@@ -262,13 +262,6 @@ onMounted(async () => {
               {{ statusText }}
             </div>
             <ThemeToggle :theme="theme" @toggle="toggleTheme" />
-            <ReasoningSelector
-              :model="model"
-              :model-value="reasoningLevel"
-              :levels="reasoningLevels"
-              :disabled="isGenerating"
-              @update:model-value="setReasoningLevel"
-            />
             <button
               class="topbar-new-button button-primary"
               type="button"
@@ -323,8 +316,17 @@ onMounted(async () => {
             :generating="isGenerating"
             @send="submit"
             @stop="stopGeneration"
-          />
-          <p class="composer-note">AI 可能会犯错，请核对重要信息 · 对话保存在本机</p>
+          >
+            <template #controls>
+              <ReasoningSelector
+                :model="model"
+                :model-value="reasoningLevel"
+                :levels="reasoningLevels"
+                :disabled="isGenerating"
+                @update:model-value="setReasoningLevel"
+              />
+            </template>
+          </ChatComposer>
         </div>
       </section>
     </div>
