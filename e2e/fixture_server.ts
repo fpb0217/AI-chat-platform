@@ -76,6 +76,21 @@ class E2eProvider implements ChatProvider {
       );
     }
 
+    if (prompt.includes("长度截断 Token")) {
+      yield { type: "delta", text: "这是一个因长度限制而结束的回答。" };
+      yield {
+        type: "done",
+        finishReason: "length",
+        usage: {
+          promptTokens: 6,
+          completionTokens: 12,
+          totalTokens: 18,
+          reasoningTokens: options.reasoningLevel === "off" ? null : 5,
+        },
+      };
+      return;
+    }
+
     if (prompt.includes("慢回答")) {
       yield { type: "delta", text: "这是一段可以停止并保留的内容，" };
       await wait(5_000, signal);

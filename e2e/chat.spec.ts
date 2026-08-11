@@ -95,10 +95,13 @@ test.describe.serial("local streaming chat", () => {
     await page.getByRole("button", { name: "发送消息" }).click();
 
     const assistant = page.locator(".message-row-assistant").last();
+    const user = page.locator(".message-row-user").last();
     await expect(assistant).toContainText("这是一个");
     await expect(assistant).not.toContainText("逐字出现的流式回答。");
     await expect(assistant).toContainText("这是一个逐字出现的流式回答。");
     await expect(assistant.locator(".reasoning-panel")).toHaveCount(0);
+    await expect(user.locator(".message-token-usage")).toContainText("实际输入 6");
+    await expect(assistant.locator(".message-token-usage")).toContainText("正文 12");
 
     await page.reload();
     await expect(
@@ -107,6 +110,12 @@ test.describe.serial("local streaming chat", () => {
     await expect(
       page.getByText("这是一个逐字出现的流式回答。", { exact: true }),
     ).toBeVisible();
+    await expect(
+      page.locator(".message-row-user").last().locator(".message-token-usage"),
+    ).toContainText("实际输入 6");
+    await expect(
+      page.locator(".message-row-assistant").last().locator(".message-token-usage"),
+    ).toContainText("正文 12");
   });
 
   test("uses max reasoning, reports its phase and restores its message label", async ({
@@ -126,6 +135,7 @@ test.describe.serial("local streaming chat", () => {
     await expect(page.getByText("正在深度思考", { exact: true })).toBeVisible();
 
     const assistant = page.locator(".message-row-assistant").last();
+    const user = page.locator(".message-row-user").last();
     const reasoningToggle = assistant.getByRole("button", {
       name: /正在思考/u,
     });
@@ -133,6 +143,9 @@ test.describe.serial("local streaming chat", () => {
     await expect(assistant.getByRole("region")).toContainText("我会先分析问题");
     await expect(assistant).toContainText("最大推理");
     await expect(assistant).toContainText("这是一个逐字出现的流式回答。");
+    await expect(user.locator(".message-token-usage")).toContainText("实际输入 6");
+    await expect(assistant.locator(".message-token-usage")).toContainText("思考 5");
+    await expect(assistant.locator(".message-token-usage")).toContainText("正文 7");
     const completedToggle = assistant.getByRole("button", {
       name: /已思考/u,
     });
@@ -146,6 +159,11 @@ test.describe.serial("local streaming chat", () => {
     const restored = page.locator(".message-row-assistant").last();
     await expect(restored).toContainText("最大推理");
     await expect(restored).toContainText("这是一个逐字出现的流式回答。");
+    await expect(
+      page.locator(".message-row-user").last().locator(".message-token-usage"),
+    ).toContainText("实际输入 6");
+    await expect(restored.locator(".message-token-usage")).toContainText("思考 5");
+    await expect(restored.locator(".message-token-usage")).toContainText("正文 7");
     const restoredToggle = restored.getByRole("button", { name: /已思考/u });
     await expect(restoredToggle).toHaveAttribute("aria-expanded", "false");
     await restoredToggle.click();
@@ -172,6 +190,11 @@ test.describe.serial("local streaming chat", () => {
       assistant.getByRole("button", { name: "思考已停止" }),
     ).toBeVisible();
     await expect(assistant).toContainText("已停止生成");
+    await expect(assistant.locator(".message-token-usage")).toContainText("思考 —");
+    await expect(assistant.locator(".message-token-usage")).toContainText("正文 —");
+    await expect(
+      page.locator(".message-row-user").last().locator(".message-token-usage"),
+    ).toContainText("实际输入 —");
 
     await page.waitForTimeout(200);
     await page.reload();
@@ -293,7 +316,24 @@ test.describe.serial("local streaming chat", () => {
     const assistant = page.locator(".message-row-assistant").last();
     await expect(assistant).toContainText("已经收到部分内容。");
     await expect(assistant).toContainText("回答未完整生成");
+    await expect(assistant.locator(".message-token-usage")).toContainText("正文 —");
+    await expect(
+      page.locator(".message-row-user").last().locator(".message-token-usage"),
+    ).toContainText("实际输入 —");
     await expect(page.getByRole("button", { name: /重试/u })).toHaveCount(0);
+  });
+
+  test("keeps valid usage when a response finishes for length", async ({ page }) => {
+    await page.goto("/");
+    await page.getByLabel("输入消息").fill("请测试长度截断 Token");
+    await page.getByRole("button", { name: "发送消息" }).click();
+
+    const assistant = page.locator(".message-row-assistant").last();
+    await expect(assistant).toContainText("这是一个因长度限制而结束的回答。");
+    await expect(assistant.locator(".message-token-usage")).toContainText("正文 12");
+    await expect(
+      page.locator(".message-row-user").last().locator(".message-token-usage"),
+    ).toContainText("实际输入 6");
   });
 
   test("keeps the viewport pinned while a streamed code block grows", async ({

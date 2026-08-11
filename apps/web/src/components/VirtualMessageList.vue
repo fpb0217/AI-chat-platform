@@ -16,6 +16,10 @@ import type {
   RenderedChatMessage,
   StreamState,
 } from "../composables/use_chat";
+import {
+  createTurnTokenDisplays,
+  type TurnTokenDisplay,
+} from "../lib/token_usage";
 import ChatMessageRow from "./ChatMessage.vue";
 import QueryScrollNavigator from "./QueryScrollNavigator.vue";
 import {
@@ -336,6 +340,18 @@ function messageAt(index: number): RenderedChatMessage {
   return message;
 }
 
+function tokenDisplayAt(index: number): TurnTokenDisplay {
+  return (
+    tokenDisplays.value[index] ?? {
+      inputTokens: null,
+      reasoningTokens: null,
+      answerTokens: null,
+      thinkingUsed: false,
+      state: "unavailable",
+    }
+  );
+}
+
 const virtualizerOptions = computed(() => ({
   count: props.messages.length,
   getScrollElement: () => scrollElement.value,
@@ -353,6 +369,7 @@ const virtualizer = useVirtualizer<HTMLElement, HTMLElement>(
 );
 const virtualItems = computed(() => virtualizer.value.getVirtualItems());
 const totalSize = computed(() => virtualizer.value.getTotalSize());
+const tokenDisplays = computed(() => createTurnTokenDisplays(props.messages));
 const queryNavigationItems = computed(() =>
   createQueryNavigationItems(props.messages),
 );
@@ -383,6 +400,9 @@ const tailSignal = computed(() => {
     tail?.content.length ?? 0,
     tail?.reasoningContent?.length ?? 0,
     tail?.status ?? "",
+    tail?.usage?.promptTokens ?? "",
+    tail?.usage?.completionTokens ?? "",
+    tail?.usage?.reasoningTokens ?? "",
     props.streamState,
   ].join(":");
 });
@@ -522,6 +542,7 @@ defineExpose<VirtualMessageListExpose>({ scrollToBottom, scrollToMessage });
           >
             <ChatMessageRow
               :message="messageAt(virtualRow.index)"
+              :token-display="tokenDisplayAt(virtualRow.index)"
               :reasoning-active="isReasoningActive(messageAt(virtualRow.index))"
               :reasoning-open="reasoningOpenForMessage(virtualRow.index)"
               :reasoning-open-controlled="true"

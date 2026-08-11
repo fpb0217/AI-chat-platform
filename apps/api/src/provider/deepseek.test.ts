@@ -90,6 +90,167 @@ describe("DeepSeekProvider", () => {
     });
   });
 
+  it("preserves zero and large valid usage values", async () => {
+    const provider = new DeepSeekProvider({
+      apiKey: "sk-test",
+      baseUrl: "https://api.deepseek.com",
+      model: "deepseek-v4-flash",
+      fetchImplementation: vi.fn(async () =>
+        streamResponse([
+          'data: {"choices":[],"usage":{"prompt_tokens":1000000,"completion_tokens":0,"total_tokens":1000000,"completion_tokens_details":{"reasoning_tokens":0}}}\n\n',
+          "data: [DONE]\n\n",
+        ]),
+      ),
+    });
+
+    const events = [];
+    for await (const event of provider.streamChat(
+      [{ role: "user", content: "test" }],
+      {
+        reasoningLevel: "high",
+        signal: new AbortController().signal,
+      },
+    )) {
+      events.push(event);
+    }
+
+    expect(events).toEqual([
+      {
+        type: "done",
+        finishReason: null,
+        usage: {
+          promptTokens: 1_000_000,
+          completionTokens: 0,
+          totalTokens: 1_000_000,
+          reasoningTokens: 0,
+        },
+      },
+    ]);
+  });
+
+  it("keeps missing reasoning usage as null", async () => {
+    const provider = new DeepSeekProvider({
+      apiKey: "sk-test",
+      baseUrl: "https://api.deepseek.com",
+      model: "deepseek-v4-flash",
+      fetchImplementation: vi.fn(async () =>
+        streamResponse([
+          'data: {"choices":[],"usage":{"prompt_tokens":6,"completion_tokens":12,"total_tokens":18}}\n\n',
+          "data: [DONE]\n\n",
+        ]),
+      ),
+    });
+
+    const events = [];
+    for await (const event of provider.streamChat(
+      [{ role: "user", content: "test" }],
+      {
+        reasoningLevel: "high",
+        signal: new AbortController().signal,
+      },
+    )) {
+      events.push(event);
+    }
+
+    expect(events).toEqual([
+      {
+        type: "done",
+        finishReason: null,
+        usage: {
+          promptTokens: 6,
+          completionTokens: 12,
+          totalTokens: 18,
+          reasoningTokens: null,
+        },
+      },
+    ]);
+  });
+
+  it.each([
+    ["missing prompt_tokens", { completion_tokens: 1, total_tokens: 1 }],
+    ["string values", { prompt_tokens: "1", completion_tokens: 1, total_tokens: 2 }],
+    ["fractional values", { prompt_tokens: 1.5, completion_tokens: 1, total_tokens: 2.5 }],
+    ["negative values", { prompt_tokens: -1, completion_tokens: 1, total_tokens: 0 }],
+    [
+      "unsafe integers",
+      {
+        prompt_tokens: Number.MAX_SAFE_INTEGER + 1,
+        completion_tokens: 0,
+        total_tokens: Number.MAX_SAFE_INTEGER + 1,
+      },
+    ],
+    ["inconsistent total", { prompt_tokens: 1, completion_tokens: 1, total_tokens: 1 }],
+    [
+      "reasoning above completion",
+      {
+        prompt_tokens: 1,
+        completion_tokens: 1,
+        total_tokens: 2,
+        completion_tokens_details: { reasoning_tokens: 2 },
+      },
+    ],
+  ])("does not expose %s usage while continuing the text stream", async (_name, usage) => {
+    const provider = new DeepSeekProvider({
+      apiKey: "sk-test",
+      baseUrl: "https://api.deepseek.com",
+      model: "deepseek-v4-flash",
+      fetchImplementation: vi.fn(async () =>
+        streamResponse([
+          'data: {"choices":[{"delta":{"content":"partial"},"finish_reason":"length"}]}\n\n',
+          `data: ${JSON.stringify({ choices: [], usage })}\n\n`,
+          "data: [DONE]\n\n",
+        ]),
+      ),
+    });
+
+    const events = [];
+    for await (const event of provider.streamChat(
+      [{ role: "user", content: "test" }],
+      {
+        reasoningLevel: "off",
+        signal: new AbortController().signal,
+      },
+    )) {
+      events.push(event);
+    }
+
+    expect(events).toEqual([
+      { type: "phase", phase: "answer" },
+      { type: "delta", text: "partial" },
+      { type: "done", finishReason: "length", usage: null },
+    ]);
+  });
+
+  it("invalidates an earlier usage value when a later usage object is malformed", async () => {
+    const provider = new DeepSeekProvider({
+      apiKey: "sk-test",
+      baseUrl: "https://api.deepseek.com",
+      model: "deepseek-v4-flash",
+      fetchImplementation: vi.fn(async () =>
+        streamResponse([
+          'data: {"choices":[],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}\n\n',
+          'data: {"choices":[],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":1}}\n\n',
+          "data: [DONE]\n\n",
+        ]),
+      ),
+    });
+
+    const events = [];
+    for await (const event of provider.streamChat(
+      [{ role: "user", content: "test" }],
+      {
+        reasoningLevel: "off",
+        signal: new AbortController().signal,
+      },
+    )) {
+      events.push(event);
+    }
+
+    expect(events).toEqual([
+      { type: "done", finishReason: null, usage: null },
+    ]);
+  });
+
   it.each([
     ["off", "disabled", undefined],
     ["low", "enabled", "low"],

@@ -13,6 +13,7 @@
 | 主题切换 | [浅色与深色主题切换](theme_switch/theme_switch.md) | 2026-08-10 |
 | 长对话虚拟列表优化 | [长对话消息虚拟列表优化](virtual_list_optimization/virtual_list_optimization.md) | 2026-08-10 |
 | Query 定位滚动条 | [正文区域用户 Query 定位滚动条](query_scroll_navigator/query_scroll_navigator.md) | 2026-08-11 |
+| 消息 Token 用量展示 | [消息 Token 用量展示](message_token_usage/message_token_usage.md) | 2026-08-11 |
 
 ## 已验收修复
 

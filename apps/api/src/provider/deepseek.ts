@@ -119,24 +119,36 @@ function mapHttpError(status: number): ProviderError {
   }
 }
 
+function isNonNegativeSafeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
 function parseUsage(chunk: DeepSeekChunk): TokenUsage | null {
   const usage = chunk.usage;
   if (
     !usage ||
-    typeof usage.prompt_tokens !== "number" ||
-    typeof usage.completion_tokens !== "number" ||
-    typeof usage.total_tokens !== "number"
+    !isNonNegativeSafeInteger(usage.prompt_tokens) ||
+    !isNonNegativeSafeInteger(usage.completion_tokens) ||
+    !isNonNegativeSafeInteger(usage.total_tokens) ||
+    usage.total_tokens !== usage.prompt_tokens + usage.completion_tokens
   ) {
     return null;
   }
+
+  const reasoningTokens = usage.completion_tokens_details?.reasoning_tokens;
+  if (
+    reasoningTokens !== undefined &&
+    (!isNonNegativeSafeInteger(reasoningTokens) ||
+      reasoningTokens > usage.completion_tokens)
+  ) {
+    return null;
+  }
+
   return {
     promptTokens: usage.prompt_tokens,
     completionTokens: usage.completion_tokens,
     totalTokens: usage.total_tokens,
-    reasoningTokens:
-      typeof usage.completion_tokens_details?.reasoning_tokens === "number"
-        ? usage.completion_tokens_details.reasoning_tokens
-        : null,
+    reasoningTokens: reasoningTokens ?? null,
   };
 }
 
@@ -282,7 +294,11 @@ export class DeepSeekProvider implements ChatProvider {
             return;
           }
 
-          usage = parseUsage(parsed) ?? usage;
+          if (parsed.usage !== undefined && parsed.usage !== null) {
+            // A malformed usage object must invalidate usage rather than leave a
+            // previously observed value looking trustworthy.
+            usage = parseUsage(parsed);
+          }
           const choice = parsed.choices?.[0];
           if (choice?.finish_reason !== undefined && choice.finish_reason !== null) {
             finishReason = choice.finish_reason;

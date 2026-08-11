@@ -1179,6 +1179,37 @@ button {
   color: var(--color-text-danger-strong);
 }
 
+.message-token-usage {
+  display: flex;
+  min-width: 0;
+  justify-content: flex-end;
+  gap: 4px 10px;
+  margin-top: 10px;
+  color: var(--color-text-muted);
+  font-size: 10px;
+  line-height: 1.45;
+  text-align: right;
+}
+
+.message-token-metric {
+  overflow-wrap: anywhere;
+  white-space: nowrap;
+}
+
+.message-token-metric strong {
+  color: var(--color-text-secondary);
+  font-weight: 680;
+  font-variant-numeric: tabular-nums;
+}
+
+.message-token-usage[data-token-state="pending"] {
+  color: var(--color-text-subtle);
+}
+
+.message-token-usage[data-token-state="unavailable"] {
+  color: var(--color-text-subtle);
+}
+
 .sr-only {
   position: absolute;
   width: 1px;
@@ -1889,6 +1920,15 @@ button {
 
   .reasoning-body .markdown-shell {
     font-size: 12.5px;
+  }
+
+  .message-token-usage {
+    flex-wrap: wrap;
+    gap: 3px 8px;
+  }
+
+  .message-token-metric {
+    white-space: normal;
   }
 
   .composer-region {

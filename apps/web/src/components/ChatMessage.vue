@@ -2,11 +2,14 @@
 import { computed } from "vue";
 import type { ChatMessage, ReasoningLevel } from "@ai-chat/shared";
 import { Bot, CircleAlert, CircleStop, UserRound } from "lucide-vue-next";
+import type { TurnTokenDisplay } from "../lib/token_usage";
 import MarkdownContent from "./MarkdownContent.vue";
+import MessageTokenUsage from "./MessageTokenUsage.vue";
 import ReasoningPanel from "./ReasoningPanel.vue";
 
 const props = defineProps<{
   message: ChatMessage;
+  tokenDisplay: TurnTokenDisplay;
   reasoningActive: boolean;
   reasoningOpen?: boolean;
   reasoningOpenControlled?: boolean;
@@ -103,6 +106,7 @@ const showAnswer = computed(
         <CircleAlert :size="13" />
         回答未完整生成
       </div>
+      <MessageTokenUsage :role="message.role" :display="tokenDisplay" />
     </div>
   </article>
 </template>

@@ -84,7 +84,7 @@ describe("useChat", () => {
                 );
                 controller.enqueue(
                   encoder.encode(
-                    'event: done\ndata: {"assistantMessageId":"a1","finishReason":"stop","usage":null,"reasoningDurationMs":1250}\n\n',
+                  'event: done\ndata: {"assistantMessageId":"a1","finishReason":"stop","usage":{"promptTokens":6,"completionTokens":12,"totalTokens":18,"reasoningTokens":5},"reasoningDurationMs":1250}\n\n',
                   ),
                 );
                 controller.close();
@@ -126,6 +126,12 @@ describe("useChat", () => {
       model: "deepseek-v4-flash",
       reasoningLevel: "high",
       finishReason: "stop",
+      usage: {
+        promptTokens: 6,
+        completionTokens: 12,
+        totalTokens: 18,
+        reasoningTokens: 5,
+      },
     });
     expect(chat.messages.value[1]?.renderKey).toBe(renderKey);
     wrapper.unmount();
