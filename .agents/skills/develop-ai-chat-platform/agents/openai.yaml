@@ -1,0 +1,4 @@
+interface:
+  display_name: "AI Chat 项目开发流程"
+  short_description: "按既有工作流规划、实现、验证与发布 AI Chat 项目"
+  default_prompt: "使用 $develop-ai-chat-platform，按本仓库既有流程完成本次需求的分析、实现、验证、文档与 Git 交付。"
